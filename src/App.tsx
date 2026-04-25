@@ -56,6 +56,9 @@ function App() {
   const [resultVersions, setResultVersions] = useState<AnalysisResult[]>([])
   const [shareCardTemplate, setShareCardTemplate] = useState<ShareCardTemplate>('wide')
   const [history, setHistory] = useState<AnalysisHistoryEntry[]>(() => loadHistory())
+  const [historyQuery, setHistoryQuery] = useState('')
+  const [historyToneFilter, setHistoryToneFilter] = useState<'all' | RoastTone>('all')
+  const [historyAccountFilter, setHistoryAccountFilter] = useState('all')
   const [error, setError] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
@@ -71,6 +74,30 @@ function App() {
   const stageStatus = !selectedShot ? '待选图' : result ? '可导出' : isAnalyzing ? '分析中' : '待分析'
   const errorGuidance = getErrorGuidance(error)
   const activeTemplateMeta = shareCardTemplateOptions.find((item) => item.value === shareCardTemplate) ?? shareCardTemplateOptions[0]
+  const historyQueryNormalized = historyQuery.trim().toLowerCase()
+  const historyAccountOptions = Array.from(new Set(history.map((entry) => entry.accountEmail ?? '未知账号')))
+  const filteredHistory = history.filter((entry) => {
+    if (historyToneFilter !== 'all' && entry.tone !== historyToneFilter) {
+      return false
+    }
+
+    const accountLabel = entry.accountEmail ?? '未知账号'
+    if (historyAccountFilter !== 'all' && accountLabel !== historyAccountFilter) {
+      return false
+    }
+
+    if (!historyQueryNormalized) {
+      return true
+    }
+
+    const haystack = [accountLabel, entry.imagePath, entry.result.roast, entry.result.summary, ...entry.result.titles]
+      .join(' ')
+      .toLowerCase()
+
+    return haystack.includes(historyQueryNormalized)
+  })
+  const canResetHistoryFilters =
+    historyQuery.length > 0 || historyToneFilter !== 'all' || historyAccountFilter !== 'all'
 
   useEffect(() => {
     let mounted = true
@@ -390,6 +417,12 @@ function App() {
     setResultVersions([entry.result])
     setError(null)
     setToast('已放回当前舞台。')
+  }
+
+  function resetHistoryFilters() {
+    setHistoryQuery('')
+    setHistoryToneFilter('all')
+    setHistoryAccountFilter('all')
   }
 
   function restorePreviousVersion() {
@@ -727,38 +760,89 @@ function App() {
         <div className="section-head">
           <div>
             <p className="eyebrow">最近记录</p>
-            <h2>本地保留最近 6 条，方便你回看哪条最能打</h2>
+            <h2>本地保留最近 24 条，方便你按语气、账号和关键词回看素材</h2>
           </div>
-          <span className="badge subtle-badge">仅存本地</span>
+          <span className="badge subtle-badge">显示 {filteredHistory.length} / {history.length}</span>
         </div>
 
         {history.length > 0 ? (
-          <div className="history-grid">
-            {history.map((entry) => {
-              const toneMeta = toneOptions.find((item) => item.value === entry.tone) ?? toneOptions[0]
+          <>
+            <div className="history-toolbar">
+              <input
+                aria-label="搜索历史记录"
+                className="history-search"
+                onChange={(event) => setHistoryQuery(event.target.value)}
+                placeholder="搜吐槽、标题、路径或账号"
+                type="text"
+                value={historyQuery}
+              />
 
-              return (
-                <article className="history-card" key={entry.id}>
-                  <img alt="历史截图预览" className="history-thumb" src={entry.previewDataUrl} />
-                  <div className="history-content">
-                    <div className="history-topline">
-                      <div>
-                        <strong>{entry.accountEmail ?? '未知账号'}</strong>
-                        <span>{formatTime(entry.createdAt)}</span>
+              <div className="history-filters">
+                <select
+                  aria-label="按语气筛选历史记录"
+                  onChange={(event) => setHistoryToneFilter(event.target.value as 'all' | RoastTone)}
+                  value={historyToneFilter}
+                >
+                  <option value="all">全部语气</option>
+                  {toneOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  aria-label="按账号筛选历史记录"
+                  onChange={(event) => setHistoryAccountFilter(event.target.value)}
+                  value={historyAccountFilter}
+                >
+                  <option value="all">全部账号</option>
+                  {historyAccountOptions.map((accountLabel) => (
+                    <option key={accountLabel} value={accountLabel}>
+                      {accountLabel}
+                    </option>
+                  ))}
+                </select>
+
+                <button className="ghost-chip" disabled={!canResetHistoryFilters} onClick={resetHistoryFilters} type="button">
+                  清空筛选
+                </button>
+              </div>
+            </div>
+
+            {filteredHistory.length > 0 ? (
+              <div className="history-grid">
+                {filteredHistory.map((entry) => {
+                  const toneMeta = toneOptions.find((item) => item.value === entry.tone) ?? toneOptions[0]
+
+                  return (
+                    <article className="history-card" key={entry.id}>
+                      <img alt="历史截图预览" className="history-thumb" src={entry.previewDataUrl} />
+                      <div className="history-content">
+                        <div className="history-topline">
+                          <div>
+                            <strong>{entry.accountEmail ?? '未知账号'}</strong>
+                            <span>{formatTime(entry.createdAt)}</span>
+                          </div>
+                          <span className="meta-pill">{toneMeta.label}</span>
+                        </div>
+
+                        <p className="history-roast">{entry.result.roast}</p>
+                        <p className="supporting-text history-path">{entry.imagePath}</p>
+                        <button className="ghost-link" onClick={() => loadHistoryEntry(entry)} type="button">
+                          放回当前舞台
+                        </button>
                       </div>
-                      <span className="meta-pill">{toneMeta.label}</span>
-                    </div>
-
-                    <p className="history-roast">{entry.result.roast}</p>
-                    <p className="supporting-text history-path">{entry.imagePath}</p>
-                    <button className="ghost-link" onClick={() => loadHistoryEntry(entry)} type="button">
-                      放回当前舞台
-                    </button>
-                  </div>
-                </article>
-              )
-            })}
-          </div>
+                    </article>
+                  )
+                })}
+              </div>
+            ) : (
+              <div className="empty-state wide richer">
+                <p>当前筛选条件下还没有命中的历史记录。换个关键词，或者先清空筛选看看。</p>
+              </div>
+            )}
+          </>
         ) : (
           <div className="empty-state wide richer">
             <p>还没有历史记录。做完第一轮分析后，这里会变成你自己的梗图素材库。</p>

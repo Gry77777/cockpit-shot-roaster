@@ -139,6 +139,62 @@ describe('App', () => {
     })
   })
 
+  it('filters history records by keyword and can clear filters', async () => {
+    mockCockpitBridge()
+    window.localStorage.setItem(
+      'cockpit-shot-roaster-history',
+      JSON.stringify([
+        {
+          id: 'h1',
+          createdAt: '2026-04-25T10:00:00.000Z',
+          imagePath: 'C:\\shots\\cat.png',
+          previewDataUrl: 'data:image/png;base64,cat',
+          tone: 'roast',
+          accountEmail: 'cat@codex.dev',
+          result: {
+            roast: '这张猫图像是刚开完会，还没决定先哈气还是先翻白眼。',
+            summary: '猫咪表情非常有攻击性，但又带一点困倦感。',
+            titles: ['猫咪开会后遗症', '这眼神像项目延期了', '一只正在压怒气值的猫'],
+          },
+        },
+        {
+          id: 'h2',
+          createdAt: '2026-04-25T11:00:00.000Z',
+          imagePath: 'C:\\shots\\desk.png',
+          previewDataUrl: 'data:image/png;base64,desk',
+          tone: 'gentle',
+          accountEmail: 'desk@codex.dev',
+          result: {
+            roast: '这个工位看起来很安静，但安静得像刚被周会掏空。',
+            summary: '桌面陈设简单，整体气氛偏疲惫和暂停。',
+            titles: ['工位进入省电模式', '桌面没有乱，精神先乱了', '一眼看出今天不想开会'],
+          },
+        },
+      ]),
+    )
+
+    render(<App />)
+    await dismissOnboardingIfPresent()
+
+    fireEvent.change(screen.getByLabelText('搜索历史记录'), {
+      target: { value: '猫' },
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('这张猫图像是刚开完会，还没决定先哈气还是先翻白眼。')).toBeInTheDocument()
+      expect(screen.queryByText('这个工位看起来很安静，但安静得像刚被周会掏空。')).not.toBeInTheDocument()
+      expect(screen.getByText('显示 1 / 2')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '清空筛选' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('这张猫图像是刚开完会，还没决定先哈气还是先翻白眼。')).toBeInTheDocument()
+      expect(screen.getByText('这个工位看起来很安静，但安静得像刚被周会掏空。')).toBeInTheDocument()
+      expect(screen.getByText('显示 2 / 2')).toBeInTheDocument()
+    })
+  })
+
   it('saves settings, syncs desktop preferences, and auto analyzes imported screenshots with the chosen default tone', async () => {
     const { bridge } = mockCockpitBridge()
     mockFileReader('data:image/png;base64,dragged-preview')

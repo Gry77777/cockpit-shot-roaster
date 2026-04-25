@@ -1007,6 +1007,40 @@ ol {
     rgba(255, 255, 255, 0.025);
 }
 
+.history-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.history-search,
+.history-filters select {
+  width: 100%;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-main);
+}
+
+.history-search:focus,
+.history-filters select:focus {
+  outline: none;
+  border-color: rgba(142, 216, 255, 0.46);
+  box-shadow: 0 0 0 3px rgba(142, 216, 255, 0.12);
+}
+
+.history-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.history-filters select {
+  min-width: 156px;
+}
+
 .history-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1276,6 +1310,10 @@ ol {
 
   .history-thumb {
     height: 220px;
+  }
+
+  .history-toolbar {
+    grid-template-columns: 1fr;
   }
 }
 

@@ -1,7 +1,7 @@
 import type { AnalysisResult, RoastTone } from '@/lib/contracts'
 
 const HISTORY_KEY = 'cockpit-shot-roaster-history'
-const HISTORY_LIMIT = 6
+const HISTORY_LIMIT = 24
 
 export interface AnalysisHistoryEntry {
   id: string
