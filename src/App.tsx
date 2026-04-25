@@ -12,6 +12,7 @@ const toneOptions: Array<{ label: string; value: RoastTone; description: string 
 ]
 
 const supportedImagePattern = /\.(png|jpe?g|webp|gif|bmp|svg)$/i
+const ONBOARDING_KEY = 'cockpit-shot-roaster-onboarding-dismissed'
 
 type DroppedImageFile = File & { path?: string }
 
@@ -27,6 +28,7 @@ function App() {
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [isDragActive, setIsDragActive] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
+  const [showOnboarding, setShowOnboarding] = useState(() => !readBooleanPreference(ONBOARDING_KEY))
 
   const selectedToneMeta = toneOptions.find((item) => item.value === tone) ?? toneOptions[0]
   const activeEmail = account?.email ?? '正在读取账号...'
@@ -69,6 +71,33 @@ function App() {
       window.clearTimeout(timeout)
     }
   }, [toast])
+
+  useEffect(() => {
+    const handlePaste = async (event: ClipboardEvent) => {
+      const pastedFile = extractImageFromTransfer(event.clipboardData)
+      if (!pastedFile) {
+        return
+      }
+
+      event.preventDefault()
+
+      try {
+        const picked = await readDroppedImage(pastedFile)
+        setSelectedShot(picked)
+        setResult(null)
+        setError(null)
+        setToast('粘贴成功，当前截图已经进入舞台。')
+      } catch (caughtError) {
+        setError(caughtError instanceof Error ? caughtError.message : '读取粘贴图片失败。')
+      }
+    }
+
+    window.addEventListener('paste', handlePaste)
+
+    return () => {
+      window.removeEventListener('paste', handlePaste)
+    }
+  }, [])
 
   async function handlePickScreenshot() {
     const picked = await window.cockpitShot.pickScreenshot()
@@ -210,6 +239,11 @@ function App() {
     setResult(entry.result)
     setError(null)
     setToast('历史记录已放回舞台。')
+  }
+
+  function dismissOnboarding() {
+    window.localStorage.setItem(ONBOARDING_KEY, 'true')
+    setShowOnboarding(false)
   }
 
   return (
@@ -577,6 +611,41 @@ function App() {
         )}
       </section>
 
+      {showOnboarding ? (
+        <div className="onboarding-overlay" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
+          <div className="onboarding-card">
+            <p className="eyebrow">首次上手</p>
+            <h2 id="onboarding-title">第一次打开，先看这 3 步</h2>
+            <div className="onboarding-steps">
+              <div className="onboarding-step">
+                <span>1</span>
+                <div>
+                  <strong>先把截图放进来</strong>
+                  <p>你可以拖图、点按钮选图，或者直接 Ctrl+V 粘贴截图。</p>
+                </div>
+              </div>
+              <div className="onboarding-step">
+                <span>2</span>
+                <div>
+                  <strong>选一种结果语气</strong>
+                  <p>默认是毒舌，也可以切成温柔或者打工人。</p>
+                </div>
+              </div>
+              <div className="onboarding-step">
+                <span>3</span>
+                <div>
+                  <strong>分析后直接复制或导出</strong>
+                  <p>结果会给你一句吐槽、一段总结和 3 个分享标题。</p>
+                </div>
+              </div>
+            </div>
+            <button className="primary-button onboarding-button" onClick={dismissOnboarding} type="button">
+              知道了，开始用
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       {toast ? <div className="toast-banner">{toast}</div> : null}
     </main>
   )
@@ -609,6 +678,38 @@ function readDroppedImage(file: DroppedImageFile): Promise<PickedScreenshot> {
 
     reader.readAsDataURL(file)
   })
+}
+
+function extractImageFromTransfer(transfer: DataTransfer | null) {
+  if (!transfer) {
+    return null
+  }
+
+  const fileFromFiles = Array.from(transfer.files).find(isSupportedImageFile)
+  if (fileFromFiles) {
+    return fileFromFiles as DroppedImageFile
+  }
+
+  for (const item of Array.from(transfer.items)) {
+    if (item.kind !== 'file') {
+      continue
+    }
+
+    const file = item.getAsFile()
+    if (file && isSupportedImageFile(file)) {
+      return file as DroppedImageFile
+    }
+  }
+
+  return null
+}
+
+function readBooleanPreference(key: string) {
+  try {
+    return window.localStorage.getItem(key) === 'true'
+  } catch {
+    return false
+  }
 }
 
 function formatTime(value: string) {
