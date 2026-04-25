@@ -37,6 +37,7 @@ function App() {
   const [tone, setTone] = useState<RoastTone>(() => loadAppSettings().defaultTone)
   const [apiKey, setApiKey] = useState('')
   const [result, setResult] = useState<AnalysisResult | null>(null)
+  const [resultVersions, setResultVersions] = useState<AnalysisResult[]>([])
   const [history, setHistory] = useState<AnalysisHistoryEntry[]>(() => loadHistory())
   const [error, setError] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
@@ -127,9 +128,39 @@ function App() {
     }
   }, [settings.autoAnalyzeAfterImport, tone, account?.email, apiKey, result])
 
+  useEffect(() => {
+    const handleKeydown = (event: KeyboardEvent) => {
+      if (event.key !== 'Enter' || !event.ctrlKey) {
+        return
+      }
+
+      const target = event.target
+      if (target instanceof HTMLElement) {
+        const tagName = target.tagName.toLowerCase()
+        if (tagName === 'input' || tagName === 'textarea') {
+          return
+        }
+      }
+
+      if (!selectedShot || isAnalyzing || isRewriting) {
+        return
+      }
+
+      event.preventDefault()
+      void runAnalysis()
+    }
+
+    window.addEventListener('keydown', handleKeydown)
+
+    return () => {
+      window.removeEventListener('keydown', handleKeydown)
+    }
+  }, [selectedShot, isAnalyzing, isRewriting, tone, account?.email, apiKey, result])
+
   async function applyPickedShot(picked: PickedScreenshot, message: string) {
     setSelectedShot(picked)
     setResult(null)
+    setResultVersions([])
     setError(null)
 
     if (settings.autoAnalyzeAfterImport) {
@@ -181,6 +212,7 @@ function App() {
       }
 
       setResult(nextResult)
+      setResultVersions((current) => (rewriteMode ? [...current, nextResult] : [nextResult]))
       setHistory((current) => [nextEntry, ...current].slice(0, 6))
       setToast(rewriteMode ? '这一版已经重写好了。' : '结果已生成，可以直接复制或导出。')
     } catch (caughtError) {
@@ -277,8 +309,23 @@ function App() {
     })
     setTone(entry.tone)
     setResult(entry.result)
+    setResultVersions([entry.result])
     setError(null)
     setToast('这条历史结果已经放回当前舞台。')
+  }
+
+  function restorePreviousVersion() {
+    setResultVersions((current) => {
+      if (current.length <= 1) {
+        return current
+      }
+
+      const nextVersions = current.slice(0, -1)
+      const previousVersion = nextVersions[nextVersions.length - 1] ?? null
+      setResult(previousVersion)
+      setToast('已经回到上一版结果。')
+      return nextVersions
+    })
   }
 
   function dismissOnboarding() {
@@ -541,6 +588,7 @@ function App() {
                 <button className="primary-button" disabled={isAnalyzing || Boolean(isRewriting)} onClick={() => void runAnalysis()} type="button">
                   {isAnalyzing ? '分析中...' : '开始分析'}
                 </button>
+                <p className="shortcut-hint">快捷键：`Ctrl + Enter` 直接开始分析</p>
 
                 {result ? (
                   <>
@@ -607,6 +655,11 @@ function App() {
             <div className="rewrite-strip">
               <span className="rewrite-label">二次改写</span>
               <div className="rewrite-actions">
+                {resultVersions.length > 1 ? (
+                  <button className="ghost-chip" onClick={restorePreviousVersion} type="button">
+                    回到上一版
+                  </button>
+                ) : null}
                 {rewriteActions.map((action) => (
                   <button
                     key={action.value}

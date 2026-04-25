@@ -711,6 +711,11 @@ ol {
   line-height: 1.55;
 }
 
+.shortcut-hint {
+  color: var(--text-soft);
+  font-size: 0.88rem;
+}
+
 .action-stack {
   margin-top: 18px;
   display: grid;
@@ -839,6 +844,25 @@ ol {
   flex-wrap: wrap;
   gap: 10px;
   justify-content: flex-end;
+}
+
+.ghost-chip {
+  padding: 12px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-dim);
+  cursor: pointer;
+  transition:
+    transform 150ms ease,
+    border-color 150ms ease,
+    background 150ms ease;
+}
+
+.ghost-chip:hover {
+  transform: translateY(-1px);
+  border-color: rgba(142, 216, 255, 0.22);
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .rewrite-button.busy {

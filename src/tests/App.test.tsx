@@ -155,6 +155,58 @@ describe('App', () => {
     })
   })
 
+  it('supports restoring the previous rewritten result version', async () => {
+    mockCockpitBridge()
+    mockFileReader('data:image/png;base64,dragged-preview')
+    const initialResult = createAnalysisResult()
+    const rewrittenResult = createAnalysisResult({
+      roast: '第二版已经更狠了，像把原吐槽重新磨了一遍刀。',
+    })
+    window.cockpitShot.analyzeScreenshot = vi
+      .fn()
+      .mockResolvedValueOnce(initialResult)
+      .mockResolvedValueOnce(rewrittenResult)
+
+    render(<App />)
+    await dismissOnboardingIfPresent()
+    await dropImage()
+
+    fireEvent.click(screen.getByRole('button', { name: '开始分析' }))
+
+    await waitFor(() => {
+      expect(screen.getAllByText(initialResult.roast).length).toBeGreaterThan(0)
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '更毒一点' }))
+
+    await waitFor(() => {
+      expect(screen.getAllByText(rewrittenResult.roast).length).toBeGreaterThan(0)
+      expect(screen.getByRole('button', { name: '回到上一版' })).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '回到上一版' }))
+
+    await waitFor(() => {
+      expect(screen.getAllByText(initialResult.roast).length).toBeGreaterThan(0)
+    })
+  })
+
+  it('supports using ctrl enter to start analysis after a screenshot is ready', async () => {
+    mockCockpitBridge()
+    mockFileReader('data:image/png;base64,dragged-preview')
+    window.cockpitShot.analyzeScreenshot = vi.fn().mockResolvedValue(createAnalysisResult())
+
+    render(<App />)
+    await dismissOnboardingIfPresent()
+    await dropImage()
+
+    fireEvent.keyDown(window, { key: 'Enter', ctrlKey: true })
+
+    await waitFor(() => {
+      expect(window.cockpitShot.analyzeScreenshot).toHaveBeenCalledTimes(1)
+    })
+  })
+
   it('shows actionable timeout guidance and can focus the API key field', async () => {
     mockCockpitBridge()
     mockFileReader('data:image/png;base64,dragged-preview')
