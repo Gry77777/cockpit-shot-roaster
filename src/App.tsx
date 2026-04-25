@@ -60,6 +60,10 @@ function App() {
   const [historyToneFilter, setHistoryToneFilter] = useState<'all' | RoastTone>('all')
   const [historyAccountFilter, setHistoryAccountFilter] = useState('all')
   const [historyFavoriteOnly, setHistoryFavoriteOnly] = useState(false)
+  const [historyScope, setHistoryScope] = useState<'active' | 'archived' | 'all'>('active')
+  const [historySelectionMode, setHistorySelectionMode] = useState(false)
+  const [selectedHistoryIds, setSelectedHistoryIds] = useState<string[]>([])
+  const [historyDetailEntryId, setHistoryDetailEntryId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
@@ -77,7 +81,18 @@ function App() {
   const activeTemplateMeta = shareCardTemplateOptions.find((item) => item.value === shareCardTemplate) ?? shareCardTemplateOptions[0]
   const historyQueryNormalized = historyQuery.trim().toLowerCase()
   const historyAccountOptions = Array.from(new Set(history.map((entry) => entry.accountEmail ?? '未知账号')))
+  const historyDetailEntry = history.find((entry) => entry.id === historyDetailEntryId) ?? null
+  const activeHistoryCount = history.filter((entry) => !entry.isArchived).length
+  const archivedHistoryCount = history.filter((entry) => entry.isArchived).length
   const filteredHistory = history.filter((entry) => {
+    if (historyScope === 'active' && entry.isArchived) {
+      return false
+    }
+
+    if (historyScope === 'archived' && !entry.isArchived) {
+      return false
+    }
+
     if (historyFavoriteOnly && !entry.isFavorite) {
       return false
     }
@@ -109,8 +124,14 @@ function App() {
 
     return right.createdAt.localeCompare(left.createdAt)
   })
+  const selectedHistoryCount = selectedHistoryIds.filter((id) => sortedHistory.some((entry) => entry.id === id)).length
+  const everyVisibleHistorySelected = sortedHistory.length > 0 && sortedHistory.every((entry) => selectedHistoryIds.includes(entry.id))
   const canResetHistoryFilters =
-    historyQuery.length > 0 || historyToneFilter !== 'all' || historyAccountFilter !== 'all' || historyFavoriteOnly
+    historyQuery.length > 0 ||
+    historyToneFilter !== 'all' ||
+    historyAccountFilter !== 'all' ||
+    historyFavoriteOnly ||
+    historyScope !== 'active'
 
   useEffect(() => {
     let mounted = true
@@ -145,6 +166,16 @@ function App() {
   useEffect(() => {
     saveHistory(history)
   }, [history])
+
+  useEffect(() => {
+    setSelectedHistoryIds((current) => current.filter((id) => history.some((entry) => entry.id === id)))
+  }, [history])
+
+  useEffect(() => {
+    if (historyDetailEntryId && !history.some((entry) => entry.id === historyDetailEntryId)) {
+      setHistoryDetailEntryId(null)
+    }
+  }, [history, historyDetailEntryId])
 
   useEffect(() => {
     saveAppSettings(settings)
@@ -480,6 +511,116 @@ function App() {
     setToast(nextFavoriteState ? '这条历史已加入收藏。' : '这条历史已取消收藏。')
   }
 
+  function openHistoryDetail(entryId: string) {
+    setHistoryDetailEntryId(entryId)
+  }
+
+  function closeHistoryDetail() {
+    setHistoryDetailEntryId(null)
+  }
+
+  function toggleHistorySelection(entryId: string) {
+    setSelectedHistoryIds((current) => (current.includes(entryId) ? current.filter((id) => id !== entryId) : [...current, entryId]))
+  }
+
+  function toggleHistorySelectionMode() {
+    setHistorySelectionMode((current) => {
+      if (current) {
+        setSelectedHistoryIds([])
+      }
+
+      return !current
+    })
+  }
+
+  function toggleSelectAllVisibleHistory() {
+    const visibleIds = sortedHistory.map((entry) => entry.id)
+    const everyVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedHistoryIds.includes(id))
+
+    setSelectedHistoryIds((current) => {
+      if (everyVisibleSelected) {
+        return current.filter((id) => !visibleIds.includes(id))
+      }
+
+      return Array.from(new Set([...current, ...visibleIds]))
+    })
+  }
+
+  function updateHistoryEntries(entryIds: string[], updater: (entry: AnalysisHistoryEntry) => AnalysisHistoryEntry) {
+    const targetIds = new Set(entryIds)
+    setHistory((current) => current.map((entry) => (targetIds.has(entry.id) ? updater(entry) : entry)))
+  }
+
+  function setArchivedState(entryIds: string[], nextArchived: boolean) {
+    if (entryIds.length === 0) {
+      return
+    }
+
+    updateHistoryEntries(entryIds, (entry) => ({
+      ...entry,
+      isArchived: nextArchived,
+    }))
+  }
+
+  function setFavoriteState(entryIds: string[], nextFavorite: boolean) {
+    if (entryIds.length === 0) {
+      return
+    }
+
+    updateHistoryEntries(entryIds, (entry) => ({
+      ...entry,
+      isFavorite: nextFavorite,
+    }))
+  }
+
+  function removeHistoryEntries(entryIds: string[]) {
+    if (entryIds.length === 0) {
+      return
+    }
+
+    const targetIds = new Set(entryIds)
+    setHistory((current) => current.filter((entry) => !targetIds.has(entry.id)))
+  }
+
+  function archiveHistoryEntry(entryId: string, nextArchived: boolean) {
+    setArchivedState([entryId], nextArchived)
+    setToast(nextArchived ? '这条历史已归档。' : '这条历史已恢复到进行中。')
+  }
+
+  function applyBatchFavorite(nextFavorite: boolean) {
+    if (selectedHistoryIds.length === 0) {
+      return
+    }
+
+    setFavoriteState(selectedHistoryIds, nextFavorite)
+    setToast(nextFavorite ? `已收藏选中的 ${selectedHistoryIds.length} 条历史。` : `已取消收藏选中的 ${selectedHistoryIds.length} 条历史。`)
+  }
+
+  function applyBatchArchive(nextArchived: boolean) {
+    if (selectedHistoryIds.length === 0) {
+      return
+    }
+
+    setArchivedState(selectedHistoryIds, nextArchived)
+    setToast(nextArchived ? `已归档选中的 ${selectedHistoryIds.length} 条历史。` : `已恢复选中的 ${selectedHistoryIds.length} 条历史。`)
+    setSelectedHistoryIds([])
+  }
+
+  function removeSelectedHistory() {
+    if (selectedHistoryIds.length === 0) {
+      return
+    }
+
+    const confirmed = window.confirm(`确定删除选中的 ${selectedHistoryIds.length} 条历史吗？这不会影响当前舞台。`)
+    if (!confirmed) {
+      return
+    }
+
+    removeHistoryEntries(selectedHistoryIds)
+    setSelectedHistoryIds([])
+    setToast(`已删除选中的 ${selectedHistoryIds.length} 条历史。`)
+  }
+
   async function rerunHistoryEntry(entry: AnalysisHistoryEntry) {
     const nextShot = {
       path: entry.imagePath,
@@ -534,7 +675,7 @@ function App() {
       return
     }
 
-    setHistory((current) => current.filter((entry) => entry.id !== entryId))
+    removeHistoryEntries([entryId])
     setToast('这条历史已删除。')
   }
 
@@ -548,8 +689,7 @@ function App() {
       return
     }
 
-    const targetIds = new Set(sortedHistory.map((entry) => entry.id))
-    setHistory((current) => current.filter((entry) => !targetIds.has(entry.id)))
+    removeHistoryEntries(sortedHistory.map((entry) => entry.id))
     setToast(`已删除当前命中的 ${sortedHistory.length} 条历史。`)
   }
 
@@ -558,6 +698,7 @@ function App() {
     setHistoryToneFilter('all')
     setHistoryAccountFilter('all')
     setHistoryFavoriteOnly(false)
+    setHistoryScope('active')
   }
 
   function restorePreviousVersion() {
@@ -901,7 +1042,13 @@ function App() {
             <p className="eyebrow">最近记录</p>
             <h2>本地保留最近 24 条，方便你按语气、账号和关键词回看素材</h2>
           </div>
-          <span className="badge subtle-badge">显示 {sortedHistory.length} / {history.length}</span>
+          <div className="history-section-meta">
+            <div className="history-summary-chips">
+              <span className={`summary-chip ${historyScope === 'active' ? 'active' : ''}`}>进行中 {activeHistoryCount}</span>
+              <span className={`summary-chip ${historyScope === 'archived' ? 'active' : ''}`}>已归档 {archivedHistoryCount}</span>
+            </div>
+            <span className="badge subtle-badge">显示 {sortedHistory.length} / {history.length}</span>
+          </div>
         </div>
 
         {history.length > 0 ? (
@@ -917,6 +1064,32 @@ function App() {
               />
 
               <div className="history-filters">
+                <div className="history-scope-chips">
+                  <button
+                    aria-pressed={historyScope === 'active'}
+                    className={`ghost-chip ${historyScope === 'active' ? 'active' : ''}`}
+                    onClick={() => setHistoryScope('active')}
+                    type="button"
+                  >
+                    进行中
+                  </button>
+                  <button
+                    aria-pressed={historyScope === 'archived'}
+                    className={`ghost-chip ${historyScope === 'archived' ? 'active' : ''}`}
+                    onClick={() => setHistoryScope('archived')}
+                    type="button"
+                  >
+                    已归档
+                  </button>
+                  <button
+                    aria-pressed={historyScope === 'all'}
+                    className={`ghost-chip ${historyScope === 'all' ? 'active' : ''}`}
+                    onClick={() => setHistoryScope('all')}
+                    type="button"
+                  >
+                    全部
+                  </button>
+                </div>
                 <select
                   aria-label="按语气筛选历史记录"
                   onChange={(event) => setHistoryToneFilter(event.target.value as 'all' | RoastTone)}
@@ -962,13 +1135,51 @@ function App() {
               </div>
             </div>
 
+            <div className="history-mode-actions">
+              <button
+                aria-pressed={historySelectionMode}
+                className={`ghost-chip ${historySelectionMode ? 'active' : ''}`}
+                onClick={toggleHistorySelectionMode}
+                type="button"
+              >
+                {historySelectionMode ? '结束批量' : '批量选择'}
+              </button>
+            </div>
+
+            {historySelectionMode ? (
+              <div className="history-bulk-bar">
+                <span className="history-bulk-meta">已选 {selectedHistoryCount} 条</span>
+                <div className="history-bulk-actions">
+                  <button className="ghost-chip" disabled={sortedHistory.length === 0} onClick={toggleSelectAllVisibleHistory} type="button">
+                    {everyVisibleHistorySelected ? '取消全选当前结果' : '全选当前结果'}
+                  </button>
+                  <button className="ghost-chip" disabled={selectedHistoryCount === 0} onClick={() => applyBatchFavorite(true)} type="button">
+                    批量收藏
+                  </button>
+                  <button className="ghost-chip" disabled={selectedHistoryCount === 0} onClick={() => applyBatchFavorite(false)} type="button">
+                    取消收藏
+                  </button>
+                  <button className="ghost-chip" disabled={selectedHistoryCount === 0} onClick={() => applyBatchArchive(true)} type="button">
+                    批量归档
+                  </button>
+                  <button className="ghost-chip" disabled={selectedHistoryCount === 0} onClick={() => applyBatchArchive(false)} type="button">
+                    取消归档
+                  </button>
+                  <button className="ghost-chip danger-chip" disabled={selectedHistoryCount === 0} onClick={removeSelectedHistory} type="button">
+                    删除已选
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
             {sortedHistory.length > 0 ? (
               <div className="history-grid">
                 {sortedHistory.map((entry) => {
                   const toneMeta = toneOptions.find((item) => item.value === entry.tone) ?? toneOptions[0]
+                  const isSelected = selectedHistoryIds.includes(entry.id)
 
                   return (
-                    <article className="history-card" key={entry.id}>
+                    <article className={`history-card ${isSelected ? 'selected' : ''}`} key={entry.id}>
                       <img alt="历史截图预览" className="history-thumb" src={entry.previewDataUrl} />
                       <div className="history-content">
                         <div className="history-topline">
@@ -977,6 +1188,16 @@ function App() {
                             <span>{formatTime(entry.createdAt)}</span>
                           </div>
                           <div className="history-meta-stack">
+                            {historySelectionMode ? (
+                              <button
+                                aria-label={isSelected ? '取消选择这条历史' : '选择这条历史'}
+                                className={`selection-button ${isSelected ? 'active' : ''}`}
+                                onClick={() => toggleHistorySelection(entry.id)}
+                                type="button"
+                              >
+                                {isSelected ? '已选' : '选择'}
+                              </button>
+                            ) : null}
                             <button
                               aria-label={entry.isFavorite ? '取消收藏这条历史' : '收藏这条历史'}
                               className={`favorite-button ${entry.isFavorite ? 'active' : ''}`}
@@ -985,6 +1206,7 @@ function App() {
                             >
                               {entry.isFavorite ? '★' : '☆'}
                             </button>
+                            {entry.isArchived ? <span className="meta-pill muted">已归档</span> : null}
                             <span className="meta-pill">{toneMeta.label}</span>
                           </div>
                         </div>
@@ -992,6 +1214,9 @@ function App() {
                         <p className="history-roast">{entry.result.roast}</p>
                         <p className="supporting-text history-path">{entry.imagePath}</p>
                         <div className="history-actions">
+                          <button className="ghost-link" onClick={() => openHistoryDetail(entry.id)} type="button">
+                            查看详情
+                          </button>
                           <button className="ghost-link" onClick={() => loadHistoryEntry(entry)} type="button">
                             放回当前舞台
                           </button>
@@ -1003,6 +1228,9 @@ function App() {
                           </button>
                           <button className="ghost-link" onClick={() => void exportHistoryShareCard(entry)} type="button">
                             导出分享卡
+                          </button>
+                          <button className="ghost-link" onClick={() => archiveHistoryEntry(entry.id, !entry.isArchived)} type="button">
+                            {entry.isArchived ? '取消归档' : '归档'}
                           </button>
                           <button className="ghost-link danger-link" onClick={() => removeHistoryEntry(entry.id)} type="button">
                             删除
@@ -1025,6 +1253,92 @@ function App() {
           </div>
         )}
       </section>
+
+      {historyDetailEntry ? (
+        <div aria-labelledby="history-detail-title" aria-modal="true" className="history-detail-overlay" role="dialog">
+          <div className="history-detail-card">
+            <div className="history-detail-head">
+              <div>
+                <p className="eyebrow">历史详情</p>
+                <h2 id="history-detail-title">这条素材可以直接继续用，也可以马上再加工</h2>
+              </div>
+              <button className="secondary-button small" onClick={closeHistoryDetail} type="button">
+                关闭
+              </button>
+            </div>
+
+            <div className="history-detail-grid">
+              <div className="history-detail-preview">
+                <img alt="历史详情截图预览" className="history-detail-image" src={historyDetailEntry.previewDataUrl} />
+                <div className="history-detail-meta">
+                  <span className="meta-pill">{historyDetailEntry.accountEmail ?? '未知账号'}</span>
+                  <span className="meta-pill">{formatTime(historyDetailEntry.createdAt)}</span>
+                  <span className="meta-pill">{historyDetailEntry.isArchived ? '已归档' : '进行中'}</span>
+                </div>
+                <p className="supporting-text history-detail-path">{historyDetailEntry.imagePath}</p>
+              </div>
+
+              <div className="history-detail-content">
+                <article className="spotlight-card result-card">
+                  <div className="result-topline">
+                    <p className="panel-kicker">一句吐槽</p>
+                    <button className="copy-link" onClick={() => void copyText(historyDetailEntry.result.roast, '历史吐槽')} type="button">
+                      复制
+                    </button>
+                  </div>
+                  <p>{historyDetailEntry.result.roast}</p>
+                </article>
+
+                <article className="spotlight-card result-card">
+                  <div className="result-topline">
+                    <p className="panel-kicker">正经总结</p>
+                    <button className="copy-link" onClick={() => void copyText(historyDetailEntry.result.summary, '历史总结')} type="button">
+                      复制
+                    </button>
+                  </div>
+                  <p>{historyDetailEntry.result.summary}</p>
+                </article>
+
+                <article className="spotlight-card result-card">
+                  <div className="result-topline">
+                    <p className="panel-kicker">分享标题</p>
+                    <button
+                      className="copy-link"
+                      onClick={() => void copyText(historyDetailEntry.result.titles.join('\n'), '历史标题')}
+                      type="button"
+                    >
+                      复制
+                    </button>
+                  </div>
+                  <ol className="title-list">
+                    {historyDetailEntry.result.titles.map((title) => (
+                      <li key={title}>{title}</li>
+                    ))}
+                  </ol>
+                </article>
+              </div>
+            </div>
+
+            <div className="history-detail-actions">
+              <button className="ghost-chip" onClick={() => loadHistoryEntry(historyDetailEntry)} type="button">
+                放回当前舞台
+              </button>
+              <button className="ghost-chip" onClick={() => void rerunHistoryEntry(historyDetailEntry)} type="button">
+                再跑一次
+              </button>
+              <button className="ghost-chip" onClick={() => void copyText(buildResultBundle(historyDetailEntry.result), '这条历史结果')} type="button">
+                复制完整结果
+              </button>
+              <button className="ghost-chip" onClick={() => void exportHistoryShareCard(historyDetailEntry)} type="button">
+                导出分享卡
+              </button>
+              <button className="ghost-chip" onClick={() => archiveHistoryEntry(historyDetailEntry.id, !historyDetailEntry.isArchived)} type="button">
+                {historyDetailEntry.isArchived ? '取消归档' : '归档这条历史'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {showOnboarding ? (
         <div aria-labelledby="onboarding-title" aria-modal="true" className="onboarding-overlay" role="dialog">

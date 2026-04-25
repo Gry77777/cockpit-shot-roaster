@@ -1024,6 +1024,36 @@ ol {
   margin-bottom: 16px;
 }
 
+.history-section-meta {
+  display: grid;
+  gap: 10px;
+  justify-items: end;
+}
+
+.history-summary-chips,
+.history-scope-chips,
+.history-bulk-actions,
+.history-detail-meta,
+.history-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.summary-chip {
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-soft);
+  font-size: 0.88rem;
+}
+
+.summary-chip.active {
+  border-color: rgba(246, 165, 98, 0.24);
+  color: #ffe0ba;
+}
+
 .history-search,
 .history-filters select {
   width: 100%;
@@ -1057,6 +1087,29 @@ ol {
   gap: 14px;
 }
 
+.history-mode-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+
+.history-bulk-bar {
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  display: grid;
+  gap: 12px;
+  border-radius: 20px;
+  border: 1px solid rgba(142, 216, 255, 0.16);
+  background:
+    radial-gradient(circle at top right, rgba(142, 216, 255, 0.12), transparent 28%),
+    rgba(255, 255, 255, 0.035);
+}
+
+.history-bulk-meta {
+  color: #d7eefc;
+  font-weight: 700;
+}
+
 .history-card {
   padding: 14px;
   display: grid;
@@ -1066,6 +1119,11 @@ ol {
     transform 150ms ease,
     border-color 150ms ease,
     box-shadow 150ms ease;
+}
+
+.history-card.selected {
+  border-color: rgba(142, 216, 255, 0.28);
+  box-shadow: 0 0 0 1px rgba(142, 216, 255, 0.12);
 }
 
 .history-card:hover {
@@ -1091,6 +1149,24 @@ ol {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.selection-button {
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(142, 216, 255, 0.18);
+  background: rgba(255, 255, 255, 0.04);
+  color: #d7eefc;
+  cursor: pointer;
+  transition:
+    transform 150ms ease,
+    border-color 150ms ease,
+    background 150ms ease;
+}
+
+.selection-button.active {
+  border-color: rgba(142, 216, 255, 0.34);
+  background: rgba(142, 216, 255, 0.14);
 }
 
 .history-topline strong {
@@ -1137,6 +1213,11 @@ ol {
   color: #ffc9c9;
 }
 
+.meta-pill.muted {
+  background: rgba(142, 216, 255, 0.1);
+  color: #caeaff;
+}
+
 .favorite-button {
   width: 36px;
   height: 36px;
@@ -1180,6 +1261,70 @@ ol {
   line-height: 1.55;
   z-index: 20;
   animation: toast-in 180ms ease;
+}
+
+.history-detail-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 28;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(6, 8, 12, 0.72);
+  backdrop-filter: blur(14px);
+}
+
+.history-detail-card {
+  width: min(1180px, 100%);
+  max-height: min(88vh, 920px);
+  overflow: auto;
+  padding: 26px;
+  display: grid;
+  gap: 18px;
+  border-radius: 30px;
+  border: 1px solid var(--line-strong);
+  background:
+    radial-gradient(circle at top right, rgba(246, 165, 98, 0.12), transparent 24%),
+    radial-gradient(circle at bottom left, rgba(142, 216, 255, 0.12), transparent 28%),
+    rgba(14, 18, 24, 0.97);
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.38);
+}
+
+.history-detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.history-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.95fr) minmax(0, 1.05fr);
+  gap: 18px;
+}
+
+.history-detail-preview,
+.history-detail-content {
+  display: grid;
+  gap: 14px;
+}
+
+.history-detail-image {
+  width: 100%;
+  min-height: 320px;
+  max-height: 520px;
+  object-fit: cover;
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.history-detail-path {
+  word-break: break-all;
+}
+
+.history-detail-actions {
+  justify-content: flex-end;
 }
 
 .onboarding-overlay {
@@ -1372,6 +1517,18 @@ ol {
   .history-toolbar {
     grid-template-columns: 1fr;
   }
+
+  .history-section-meta {
+    justify-items: start;
+  }
+
+  .history-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .history-detail-actions {
+    justify-content: flex-start;
+  }
 }
 
 @media (max-width: 840px) {
@@ -1438,5 +1595,12 @@ ol {
 
   .rewrite-actions {
     justify-content: flex-start;
+  }
+
+  .history-bulk-actions,
+  .history-detail-meta,
+  .history-detail-actions {
+    flex-direction: column;
+    align-items: stretch;
   }
 }

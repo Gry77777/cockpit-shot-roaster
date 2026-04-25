@@ -12,6 +12,7 @@ export interface AnalysisHistoryEntry {
   accountEmail: string | null
   result: AnalysisResult
   isFavorite?: boolean
+  isArchived?: boolean
 }
 
 export function loadHistory(): AnalysisHistoryEntry[] {
@@ -40,5 +41,6 @@ function normalizeHistoryEntry(entry: AnalysisHistoryEntry): AnalysisHistoryEntr
   return {
     ...entry,
     isFavorite: Boolean(entry.isFavorite),
+    isArchived: Boolean(entry.isArchived),
   }
 }

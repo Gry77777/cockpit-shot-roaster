@@ -379,6 +379,149 @@ describe('App', () => {
     expect(window.confirm).toHaveBeenCalledTimes(2)
   })
 
+  it('opens a history detail dialog and shows the full result payload', async () => {
+    mockCockpitBridge()
+    window.localStorage.setItem(
+      'cockpit-shot-roaster-history',
+      JSON.stringify([
+        {
+          id: 'detail-1',
+          createdAt: '2026-04-25T10:00:00.000Z',
+          imagePath: 'C:\\shots\\detail.png',
+          previewDataUrl: 'data:image/png;base64,detail',
+          tone: 'roast',
+          accountEmail: 'detail@codex.dev',
+          result: createAnalysisResult({
+            roast: '这条历史需要在详情里完整查看。',
+            summary: '这是一段更完整的总结，用来确认详情抽屉会展示全量内容。',
+            titles: ['详情标题一', '详情标题二', '详情标题三'],
+          }),
+        },
+      ]),
+    )
+
+    render(<App />)
+    await dismissOnboardingIfPresent()
+
+    fireEvent.click(screen.getByRole('button', { name: '查看详情' }))
+
+    await waitFor(() => {
+      const detailDialog = screen.getByRole('dialog', { name: '这条素材可以直接继续用，也可以马上再加工' })
+      expect(detailDialog).toBeInTheDocument()
+      expect(within(detailDialog).getByText('这条历史需要在详情里完整查看。')).toBeInTheDocument()
+      expect(within(detailDialog).getByText('这是一段更完整的总结，用来确认详情抽屉会展示全量内容。')).toBeInTheDocument()
+      expect(within(detailDialog).getByText('详情标题二')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }))
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: '这条素材可以直接继续用，也可以马上再加工' })).not.toBeInTheDocument()
+    })
+  })
+
+  it('supports batch archiving the visible history set', async () => {
+    mockCockpitBridge()
+    window.localStorage.setItem(
+      'cockpit-shot-roaster-history',
+      JSON.stringify([
+        {
+          id: 'batch-1',
+          createdAt: '2026-04-25T10:00:00.000Z',
+          imagePath: 'C:\\shots\\batch-1.png',
+          previewDataUrl: 'data:image/png;base64,batch-1',
+          tone: 'roast',
+          accountEmail: 'batch@codex.dev',
+          result: createAnalysisResult({
+            roast: '第一条批量归档素材。',
+          }),
+        },
+        {
+          id: 'batch-2',
+          createdAt: '2026-04-25T11:00:00.000Z',
+          imagePath: 'C:\\shots\\batch-2.png',
+          previewDataUrl: 'data:image/png;base64,batch-2',
+          tone: 'gentle',
+          accountEmail: 'batch@codex.dev',
+          result: createAnalysisResult({
+            roast: '第二条批量归档素材。',
+          }),
+        },
+      ]),
+    )
+
+    render(<App />)
+    await dismissOnboardingIfPresent()
+
+    fireEvent.click(screen.getByRole('button', { name: '批量选择' }))
+    fireEvent.click(screen.getByRole('button', { name: '全选当前结果' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('已选 2 条')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '批量归档' }))
+    fireEvent.click(screen.getByRole('button', { name: '已归档' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('第一条批量归档素材。')).toBeInTheDocument()
+      expect(screen.getByText('第二条批量归档素材。')).toBeInTheDocument()
+      expect(screen.getByText('显示 2 / 2')).toBeInTheDocument()
+    })
+  })
+
+  it('keeps archived history out of the active view and allows restoring it', async () => {
+    mockCockpitBridge()
+    window.localStorage.setItem(
+      'cockpit-shot-roaster-history',
+      JSON.stringify([
+        {
+          id: 'archive-1',
+          createdAt: '2026-04-25T10:00:00.000Z',
+          imagePath: 'C:\\shots\\archive-1.png',
+          previewDataUrl: 'data:image/png;base64,archive-1',
+          tone: 'roast',
+          accountEmail: 'archive@codex.dev',
+          result: createAnalysisResult({
+            roast: '这条历史会先被归档，再被恢复。',
+          }),
+        },
+      ]),
+    )
+
+    render(<App />)
+    await dismissOnboardingIfPresent()
+
+    const historyCard = screen.getByText('这条历史会先被归档，再被恢复。').closest('.history-card')
+    if (!historyCard) {
+      throw new Error('history card not found')
+    }
+
+    fireEvent.click(within(historyCard).getByRole('button', { name: '归档' }))
+
+    await waitFor(() => {
+      expect(screen.queryByText('这条历史会先被归档，再被恢复。')).not.toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '已归档' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('这条历史会先被归档，再被恢复。')).toBeInTheDocument()
+    })
+
+    const archivedCard = screen.getByText('这条历史会先被归档，再被恢复。').closest('.history-card')
+    if (!archivedCard) {
+      throw new Error('archived history card not found')
+    }
+
+    fireEvent.click(within(archivedCard).getByRole('button', { name: '取消归档' }))
+    fireEvent.click(screen.getByRole('button', { name: '进行中' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('这条历史会先被归档，再被恢复。')).toBeInTheDocument()
+    })
+  })
+
   it('saves settings, syncs desktop preferences, and auto analyzes imported screenshots with the chosen default tone', async () => {
     const { bridge } = mockCockpitBridge()
     mockFileReader('data:image/png;base64,dragged-preview')
