@@ -2,7 +2,14 @@ import type { DragEvent } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { loadHistory, saveHistory, type AnalysisHistoryEntry } from './features/history/historyStore'
 import { renderShareCardPngDataUrl } from './features/shareCard/renderShareCard'
-import { dismissOnboardingPreference, hasDismissedOnboarding, loadAppSettings, resetOnboardingPreference, saveAppSettings, type AppSettings } from './lib/appSettings'
+import {
+  dismissOnboardingPreference,
+  hasDismissedOnboarding,
+  loadAppSettings,
+  resetOnboardingPreference,
+  saveAppSettings,
+  type AppSettings,
+} from './lib/appSettings'
 import type {
   AnalysisResult,
   CockpitAccountState,
@@ -11,7 +18,13 @@ import type {
   RewriteMode,
 } from './lib/contracts'
 import { getErrorGuidance } from './lib/errorGuidance'
-import { buildShareCardFileName, buildShareCardSvg } from './lib/shareCard/shareCard'
+import {
+  buildShareCardFileName,
+  buildShareCardSvg,
+  getShareCardCanvasSize,
+  shareCardTemplateOptions,
+  type ShareCardTemplate,
+} from './lib/shareCard/shareCard'
 
 const toneOptions: Array<{ label: string; value: RoastTone; description: string }> = [
   { label: '毒舌', value: 'roast', description: '更冲一点，适合把截图里的情绪值直接拉满。' },
@@ -20,7 +33,7 @@ const toneOptions: Array<{ label: string; value: RoastTone; description: string 
 ]
 
 const rewriteActions: Array<{ label: string; value: RewriteMode; description: string }> = [
-  { label: '更毒一点', value: 'spicier', description: '把梗味往上推一档。' },
+  { label: '更毒一点', value: 'spicier', description: '把梗味再往上推一档。' },
   { label: '更短一点', value: 'shorter', description: '压成更利落的短句。' },
   { label: '标题党一点', value: 'headline', description: '让标题更像能直接发出去。' },
 ]
@@ -30,14 +43,17 @@ const supportedImagePattern = /\.(png|jpe?g|webp|gif|bmp|svg)$/i
 type DroppedImageFile = File & { path?: string }
 
 function App() {
+  const initialSettings = loadAppSettings()
+
   const [account, setAccount] = useState<CockpitAccountState | null>(null)
-  const [settings, setSettings] = useState<AppSettings>(() => loadAppSettings())
-  const [draftSettings, setDraftSettings] = useState<AppSettings>(() => loadAppSettings())
+  const [settings, setSettings] = useState<AppSettings>(initialSettings)
+  const [draftSettings, setDraftSettings] = useState<AppSettings>(initialSettings)
   const [selectedShot, setSelectedShot] = useState<PickedScreenshot | null>(null)
-  const [tone, setTone] = useState<RoastTone>(() => loadAppSettings().defaultTone)
+  const [tone, setTone] = useState<RoastTone>(initialSettings.defaultTone)
   const [apiKey, setApiKey] = useState('')
   const [result, setResult] = useState<AnalysisResult | null>(null)
   const [resultVersions, setResultVersions] = useState<AnalysisResult[]>([])
+  const [shareCardTemplate, setShareCardTemplate] = useState<ShareCardTemplate>('wide')
   const [history, setHistory] = useState<AnalysisHistoryEntry[]>(() => loadHistory())
   const [error, setError] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
@@ -53,23 +69,24 @@ function App() {
   const activeEmail = account?.email ?? '正在读取 Codex 账号...'
   const stageStatus = !selectedShot ? '待选图' : result ? '可导出' : isAnalyzing ? '分析中' : '待分析'
   const errorGuidance = getErrorGuidance(error)
+  const activeTemplateMeta = shareCardTemplateOptions.find((item) => item.value === shareCardTemplate) ?? shareCardTemplateOptions[0]
 
   useEffect(() => {
-    let isMounted = true
+    let mounted = true
 
     void window.cockpitShot.getCurrentAccount().then((value) => {
-      if (isMounted) {
+      if (mounted) {
         setAccount(value)
       }
     })
 
     const unsubscribe = window.cockpitShot.onCurrentAccountChange((value) => {
       setAccount(value)
-      setToast('Codex 账号已切换，桌面应用也已经跟上。')
+      setToast('Codex 账号已切换，桌面应用也已经同步。')
     })
 
     return () => {
-      isMounted = false
+      mounted = false
       unsubscribe()
     }
   }, [])
@@ -87,21 +104,14 @@ function App() {
       return
     }
 
-    const timeout = window.setTimeout(() => {
-      setToast(null)
-    }, 2400)
-
-    return () => {
-      window.clearTimeout(timeout)
-    }
+    const timer = window.setTimeout(() => setToast(null), 2400)
+    return () => window.clearTimeout(timer)
   }, [toast])
 
   useEffect(() => {
-    if (!isSettingsOpen) {
-      return
+    if (isSettingsOpen) {
+      setDraftSettings(settings)
     }
-
-    setDraftSettings(settings)
   }, [isSettingsOpen, settings])
 
   useEffect(() => {
@@ -122,10 +132,7 @@ function App() {
     }
 
     window.addEventListener('paste', handlePaste)
-
-    return () => {
-      window.removeEventListener('paste', handlePaste)
-    }
+    return () => window.removeEventListener('paste', handlePaste)
   }, [settings.autoAnalyzeAfterImport, tone, account?.email, apiKey, result])
 
   useEffect(() => {
@@ -137,12 +144,12 @@ function App() {
       const target = event.target
       if (target instanceof HTMLElement) {
         const tagName = target.tagName.toLowerCase()
-        if (tagName === 'input' || tagName === 'textarea') {
+        if (tagName === 'input' || tagName === 'textarea' || target.isContentEditable) {
           return
         }
       }
 
-      if (!selectedShot || isAnalyzing || isRewriting) {
+      if (!selectedShot || isAnalyzing || Boolean(isRewriting)) {
         return
       }
 
@@ -151,10 +158,7 @@ function App() {
     }
 
     window.addEventListener('keydown', handleKeydown)
-
-    return () => {
-      window.removeEventListener('keydown', handleKeydown)
-    }
+    return () => window.removeEventListener('keydown', handleKeydown)
   }, [selectedShot, isAnalyzing, isRewriting, tone, account?.email, apiKey, result])
 
   async function applyPickedShot(picked: PickedScreenshot, message: string) {
@@ -223,6 +227,27 @@ function App() {
     }
   }
 
+  async function buildShareCardPngDataUrl() {
+    if (!selectedShot || !result) {
+      throw new Error('请先生成一条结果。')
+    }
+
+    const svg = buildShareCardSvg(
+      {
+        previewDataUrl: selectedShot.previewDataUrl,
+        toneLabel: selectedToneMeta.label,
+        accountEmail: account?.email ?? null,
+        roast: result.roast,
+        summary: result.summary,
+        titles: result.titles,
+      },
+      shareCardTemplate,
+    )
+
+    const canvasSize = getShareCardCanvasSize(shareCardTemplate)
+    return renderShareCardPngDataUrl(svg, canvasSize.width, canvasSize.height)
+  }
+
   async function handleExportShareCard() {
     if (!selectedShot || !result) {
       setError('请先生成一条结果，再导出分享卡。')
@@ -233,19 +258,13 @@ function App() {
       setIsExporting(true)
       setError(null)
 
-      const svg = buildShareCardSvg({
-        previewDataUrl: selectedShot.previewDataUrl,
-        toneLabel: selectedToneMeta.label,
-        accountEmail: account?.email ?? null,
-        roast: result.roast,
-        summary: result.summary,
-        titles: result.titles,
-      })
-      const pngDataUrl = await renderShareCardPngDataUrl(svg)
-      const savedPath = await window.cockpitShot.saveShareCard(pngDataUrl, buildShareCardFileName())
+      const pngDataUrl = await buildShareCardPngDataUrl()
+      const savedPath = await window.cockpitShot.saveShareCard(pngDataUrl, buildShareCardFileName(shareCardTemplate))
 
       if (savedPath) {
-        setToast('分享卡已经保存到本地。')
+        setToast(`分享卡已导出到 ${savedPath}`)
+      } else {
+        setToast('已取消导出。')
       }
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : '导出分享卡失败。')
@@ -254,19 +273,39 @@ function App() {
     }
   }
 
-  function handleStageDragEnter(event: DragEvent<HTMLElement>) {
+  async function handleCopyShareCard() {
+    if (!selectedShot || !result) {
+      setError('请先生成一条结果，再复制分享卡。')
+      return
+    }
+
+    try {
+      setIsExporting(true)
+      setError(null)
+
+      if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') {
+        throw new Error('当前环境不支持直接复制图片。')
+      }
+
+      const pngDataUrl = await buildShareCardPngDataUrl()
+      const blob = dataUrlToBlob(pngDataUrl)
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
+      setToast(`分享卡已复制到剪贴板（${activeTemplateMeta.label}）`)
+    } catch (caughtError) {
+      setError(caughtError instanceof Error ? caughtError.message : '复制分享卡失败。')
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
+  function handleDragOver(event: DragEvent<HTMLElement>) {
     event.preventDefault()
     setIsDragActive(true)
   }
 
-  function handleStageDragOver(event: DragEvent<HTMLElement>) {
+  function handleDragLeave(event: DragEvent<HTMLElement>) {
     event.preventDefault()
-    event.dataTransfer.dropEffect = 'copy'
-    setIsDragActive(true)
-  }
 
-  function handleStageDragLeave(event: DragEvent<HTMLElement>) {
-    event.preventDefault()
     const nextTarget = event.relatedTarget
     if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) {
       return
@@ -275,31 +314,36 @@ function App() {
     setIsDragActive(false)
   }
 
-  async function handleStageDrop(event: DragEvent<HTMLElement>) {
+  async function handleDrop(event: DragEvent<HTMLElement>) {
     event.preventDefault()
     setIsDragActive(false)
 
-    const droppedFile = Array.from(event.dataTransfer.files).find(isSupportedImageFile)
+    const droppedFile = extractImageFromTransfer(event.dataTransfer)
     if (!droppedFile) {
-      setError('这里只能拖入图片文件。')
+      setError('这里暂时只支持拖入图片文件。')
       return
     }
 
     try {
-      const picked = await readDroppedImage(droppedFile as DroppedImageFile)
-      await applyPickedShot(picked, '截图已替换，可以继续分析。')
+      const picked = await readDroppedImage(droppedFile)
+      await applyPickedShot(picked, '截图已进入舞台，可以开始分析。')
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : '读取拖入图片失败。')
     }
   }
 
-  async function copyText(text: string, label: string) {
-    try {
-      await navigator.clipboard.writeText(text)
-      setToast(`${label}已复制到剪贴板。`)
-    } catch {
-      setError('复制失败，请稍后重试。')
+  async function copyText(value: string, label: string) {
+    await navigator.clipboard.writeText(value)
+    setToast(`${label}已复制`)
+  }
+
+  function copyAllResult() {
+    if (!result) {
+      return
     }
+
+    const bundle = [`一句吐槽`, result.roast, '', '正经总结', result.summary, '', '分享标题', ...result.titles.map((title, index) => `${index + 1}. ${title}`)].join('\n')
+    void copyText(bundle, '结果汇总')
   }
 
   function loadHistoryEntry(entry: AnalysisHistoryEntry) {
@@ -311,7 +355,7 @@ function App() {
     setResult(entry.result)
     setResultVersions([entry.result])
     setError(null)
-    setToast('这条历史结果已经放回当前舞台。')
+    setToast('已放回当前舞台。')
   }
 
   function restorePreviousVersion() {
@@ -321,9 +365,8 @@ function App() {
       }
 
       const nextVersions = current.slice(0, -1)
-      const previousVersion = nextVersions[nextVersions.length - 1] ?? null
-      setResult(previousVersion)
-      setToast('已经回到上一版结果。')
+      setResult(nextVersions[nextVersions.length - 1] ?? null)
+      setToast('已回到上一版结果。')
       return nextVersions
     })
   }
@@ -333,25 +376,24 @@ function App() {
     setShowOnboarding(false)
   }
 
-  function openSettings() {
-    setDraftSettings(settings)
-    setIsSettingsOpen(true)
+  function replayOnboarding() {
+    resetOnboardingPreference()
+    setShowOnboarding(true)
+    setIsSettingsOpen(false)
   }
 
   function saveSettings() {
     setSettings(draftSettings)
     setTone(draftSettings.defaultTone)
-    setToast('偏好设置已更新。')
     setIsSettingsOpen(false)
+    setToast('偏好设置已保存。')
   }
 
-  function replayOnboarding() {
-    resetOnboardingPreference()
-    setIsSettingsOpen(false)
-    setShowOnboarding(true)
-  }
+  function handleGuidanceAction(action: 'retry' | 'focus-api' | undefined) {
+    if (!action) {
+      return
+    }
 
-  function handleGuidanceAction(action: 'retry' | 'focus-api') {
     if (action === 'retry') {
       void runAnalysis()
       return
@@ -360,277 +402,204 @@ function App() {
     apiKeyInputRef.current?.focus()
   }
 
+  const canStartAnalysis = Boolean(selectedShot) && !isAnalyzing && !isRewriting
+  const canExport = Boolean(selectedShot && result) && !isExporting
+
   return (
     <main className="shell">
       <header className="app-bar">
-        <div className="brand-lockup">
-          <div aria-hidden="true" className="brand-mark">
-            SR
-          </div>
-          <div>
-            <p className="eyebrow">Codex 联动桌面版</p>
-            <h1 className="app-title">截图吐槽机</h1>
-          </div>
+        <div>
+          <p className="eyebrow">Cockpit-linked Desktop Tool</p>
+          <h1>截图吐槽机</h1>
         </div>
-
-        <div className="head-cluster top-actions">
-          <span className="badge strong-badge">可安装软件</span>
-          <span className="badge subtle-badge">只读监听 Codex</span>
-          <button className="secondary-button top-icon-button" onClick={openSettings} type="button">
+        <div className="head-cluster">
+          <span className="badge subtle-badge">只读监听 Codex 账号</span>
+          <button className="secondary-button" onClick={() => setIsSettingsOpen(true)} type="button">
             偏好设置
           </button>
         </div>
       </header>
 
       <section className="hero-panel">
-        <div className="hero-copyblock">
-          <p className="eyebrow">产品气质</p>
+        <div>
+          <p className="eyebrow">Ready to Roast</p>
           <h2 className="hero-headline">把截图变成一段能直接发出去的结果</h2>
-          <p className="hero-subtitle">只读联动当前 Codex 账号，不改 Cockpit 原有代码、不碰原有逻辑。</p>
-          <p className="hero-copy">
-            你可以拖图、选语气、生成吐槽，再一键导出分享卡。现在这版还多了结果二次改写、失败下一步引导和偏好设置，
-            更像一个真正能长期留在桌面上的小工具。
+          <p className="supporting-text">
+            这不是一个只会跑一遍结果的原型页。现在它已经能拖图、粘贴、二次改写、导出分享卡，还会跟随你当前的 Codex 账号同步显示。
           </p>
-
           <div className="hero-highlights">
-            <article className="highlight-card">
-              <span>01</span>
-              <strong>接图够快</strong>
-              <p>支持拖图、选图和 Ctrl+V 粘贴，导入后也能按偏好自动开始分析。</p>
+            <article className="stat-card">
+              <span>当前账号</span>
+              <strong>{activeEmail}</strong>
             </article>
-            <article className="highlight-card">
-              <span>02</span>
-              <strong>结果可继续打磨</strong>
-              <p>不是一次性吐完就结束，还能继续改得更毒、更短或者更像传播标题。</p>
-            </article>
-            <article className="highlight-card">
-              <span>03</span>
-              <strong>失败也给下一步</strong>
-              <p>认证、超时、本地接入异常都会给出更明确的补救动作，不让你自己猜。</p>
+            <article className="stat-card">
+              <span>舞台状态</span>
+              <strong>{stageStatus}</strong>
             </article>
           </div>
         </div>
-
-        <div className="hero-aside">
-          <article className="spotlight-card">
-            <span className="spotlight-label">当前 Codex 账号</span>
-            <strong>{activeEmail}</strong>
+        <div className="hero-stats">
+          <article className="info-card">
+            <p className="panel-kicker">本地联动</p>
+            <strong>账号切换会自动同步</strong>
             <p>{formatAccountSyncText(account)}</p>
           </article>
-
-          <div className="hero-stats">
-            <div className="mini-stat">
-              <span>当前阶段</span>
-              <strong>{stageStatus}</strong>
-            </div>
-            <div className="mini-stat">
-              <span>当前语气</span>
-              <strong>{selectedToneMeta.label}</strong>
-            </div>
-            <div className="mini-stat">
-              <span>本地历史</span>
-              <strong>{history.length}/6</strong>
-            </div>
-          </div>
+          <article className="info-card">
+            <p className="panel-kicker">这版新增</p>
+            <strong>分享卡模板 + 一键复制图片</strong>
+            <p>导出不再只有一种固定样式，结果出来后可以直接切到宽屏或方卡，再决定复制还是保存。</p>
+          </article>
         </div>
       </section>
 
       <section className="workspace-panel">
         <div className="section-head">
           <div>
-            <p className="eyebrow">主工作台</p>
-            <h2>导入截图、生成结果、继续打磨，整条链路都在这</h2>
+            <p className="eyebrow">工作区</p>
+            <h2>第一版已经能跑，但这版开始更像一个真软件了</h2>
           </div>
-
-          <div className="head-cluster">
-            <span className="badge subtle-badge">默认语气：{toneOptions.find((item) => item.value === settings.defaultTone)?.label}</span>
-            <span className="badge">{stageStatus}</span>
-          </div>
+          <span className="badge subtle-badge">快捷键 Ctrl + Enter</span>
         </div>
 
         <div className="workspace-grid">
-          <article
-            aria-label="截图拖放区"
-            className={`preview-stage ${isDragActive ? 'drag-active' : ''}`}
-            onDragEnter={handleStageDragEnter}
-            onDragLeave={handleStageDragLeave}
-            onDragOver={handleStageDragOver}
-            onDrop={handleStageDrop}
-          >
+          <article className="preview-stage spotlight-card">
             <div className="panel-topline">
               <div>
-                <p className="panel-kicker">截图舞台</p>
-                <h3>{selectedShot ? '截图已就位' : '拖一张图进来'}</h3>
+                <p className="panel-kicker">截图</p>
+                <h3>{selectedShot ? '截图已选中' : '拖一张截图进来'}</h3>
               </div>
-              <button className="secondary-button" onClick={handlePickScreenshot} type="button">
+              <button className="secondary-button" onClick={() => void handlePickScreenshot()} type="button">
                 {selectedShot ? '换一张图' : '选择截图'}
               </button>
             </div>
 
-            {selectedShot ? (
-              <div className="preview-frame">
-                <img alt="当前截图预览" className="shot-preview" src={selectedShot.previewDataUrl} />
-                <div className="preview-meta">
-                  <span className="meta-pill">{selectedToneMeta.label}</span>
-                  <span className="meta-pill subtle">{activeEmail}</span>
-                  <span className="meta-pill subtle">当前阶段 · {stageStatus}</span>
+            <button
+              aria-label="截图拖放区"
+              className={`preview-frame ${isDragActive ? 'drag-active' : ''}`}
+              onDragLeave={handleDragLeave}
+              onDragOver={handleDragOver}
+              onDrop={(event) => void handleDrop(event)}
+              type="button"
+            >
+              {selectedShot ? (
+                <div className="preview-frame">
+                  <img alt="当前截图预览" className="shot-preview" src={selectedShot.previewDataUrl} />
                 </div>
-                <p className="supporting-text path-text">{selectedShot.path}</p>
-                <p className="drop-caption">继续拖进另一张图会直接替换当前截图。开启自动分析后，导入就会立刻开跑。</p>
-              </div>
-            ) : (
-              <div className="empty-spotlight">
-                <div className="empty-orb" />
-                <div className="empty-copy">
-                  <strong>拖入图片，或者点击右上角按钮手动选择</strong>
-                  <p>支持 PNG、JPG、WEBP、GIF 等常见格式，Ctrl+V 也能直接把截图贴进来。</p>
+              ) : (
+                <div className="empty-spotlight">
+                  <strong>拖图、点按钮，或者直接 Ctrl + V</strong>
+                  <p>支持 PNG / JPG / WEBP / GIF / BMP / SVG。</p>
                 </div>
-              </div>
-            )}
+              )}
+            </button>
 
-            {isDragActive ? (
-              <div className="drop-overlay">
-                <strong>松手即可导入截图</strong>
-                <span>进入舞台后可以直接分析，也可以继续替换当前截图。</span>
-              </div>
-            ) : null}
+            {selectedShot ? <p className="supporting-text path-text">{selectedShot.path}</p> : null}
           </article>
 
-          <aside className="control-rail">
-            <article className="control-card">
-              <div className="panel-topline compact">
-                <div>
-                  <p className="panel-kicker">状态面板</p>
-                  <h3>当前这轮在做什么</h3>
-                </div>
+          <aside className="control-card control-rail">
+            <div className="panel-topline">
+              <div>
+                <p className="panel-kicker">控制台</p>
+                <h3>开始吐槽</h3>
               </div>
+              <span className="meta-pill">{selectedToneMeta.label}</span>
+            </div>
 
-              <div className="status-grid">
-                <div className="status-tile">
-                  <span>账号来源</span>
-                  <strong>Codex 当前账号</strong>
-                  <p>由 Cockpit 只读同步，不反向写回。</p>
-                </div>
-                <div className="status-tile">
-                  <span>结果语言</span>
-                  <strong>简体中文</strong>
-                  <p>截图内容即使是英文或日文，输出也统一转成中文。</p>
-                </div>
-                <div className="status-tile">
-                  <span>当前首推标题</span>
-                  <strong>{result?.titles[0] ?? '等分析后自动出现'}</strong>
-                  <p>适合直接拿去做分享文案或 README 截图标题。</p>
-                </div>
-              </div>
-
-              <div className="workflow-list">
-                <div className={`flow-step ${selectedShot ? 'done' : 'active'}`}>
-                  <span>1</span>
-                  <div>
-                    <strong>准备截图</strong>
-                    <p>拖图、选图、粘贴都可以。</p>
-                  </div>
-                </div>
-                <div className={`flow-step ${selectedShot && !result ? 'active' : result ? 'done' : ''}`}>
-                  <span>2</span>
-                  <div>
-                    <strong>生成首轮结果</strong>
-                    <p>先拿到一句吐槽、一段总结和三个分享标题。</p>
-                  </div>
-                </div>
-                <div className={`flow-step ${result ? 'active' : ''}`}>
-                  <span>3</span>
-                  <div>
-                    <strong>继续打磨或导出</strong>
-                    <p>可以再改写一版，也可以直接导出分享卡。</p>
-                  </div>
-                </div>
-              </div>
-            </article>
-
-            <article className="control-card">
-              <div className="panel-topline compact">
-                <div>
-                  <p className="panel-kicker">控制台</p>
-                  <h3>开始分析</h3>
-                </div>
-                <span className="tone-badge">{selectedToneMeta.label}</span>
-              </div>
-
-              <div className="tone-grid">
+            <label className="field" htmlFor="tone-select">
+              <span>语气</span>
+              <select id="tone-select" value={tone} onChange={(event) => setTone(event.target.value as RoastTone)}>
                 {toneOptions.map((option) => (
-                  <button
-                    key={option.value}
-                    className={`tone-option ${tone === option.value ? 'active' : ''}`}
-                    onClick={() => setTone(option.value)}
-                    type="button"
-                  >
-                    <strong>{option.label}</strong>
-                    <span>{option.description}</span>
-                  </button>
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
                 ))}
-              </div>
+              </select>
+              <small>{selectedToneMeta.description}</small>
+            </label>
 
-              <label className="field">
-                <span>OpenAI API Key</span>
-                <input
-                  aria-label="OpenAI API Key"
-                  onChange={(event) => setApiKey(event.target.value)}
-                  placeholder="可留空，优先走当前 Codex 本地接入"
-                  ref={apiKeyInputRef}
-                  type="password"
-                  value={apiKey}
-                />
-                <small>这里只影响这个应用，不会写回 Cockpit，也不会改它原来的账号配置。</small>
-              </label>
+            <label className="field" htmlFor="api-key-input">
+              <span>OpenAI API Key</span>
+              <input
+                id="api-key-input"
+                placeholder="可留空；如果系统里已经设置 OPENAI_API_KEY"
+                ref={apiKeyInputRef}
+                type="password"
+                value={apiKey}
+                onChange={(event) => setApiKey(event.target.value)}
+              />
+              <small>这里只影响这个应用，不会写回 Cockpit，也不会改它的账号配置。</small>
+            </label>
 
-              <div className="action-stack">
-                <button className="primary-button" disabled={isAnalyzing || Boolean(isRewriting)} onClick={() => void runAnalysis()} type="button">
-                  {isAnalyzing ? '分析中...' : '开始分析'}
-                </button>
-                <p className="shortcut-hint">快捷键：`Ctrl + Enter` 直接开始分析</p>
+            <div className="action-stack">
+              <button
+                className="primary-button"
+                disabled={!canStartAnalysis}
+                onClick={() => void runAnalysis()}
+                type="button"
+              >
+                {isAnalyzing ? '分析中...' : '开始分析'}
+              </button>
+              <span className="shortcut-hint">Ctrl + Enter 也可以直接开始</span>
+            </div>
 
-                {result ? (
-                  <>
+            <div className="sharecard-toolbar">
+              <div>
+                <p className="field-label">分享卡模板</p>
+                <div className="sharecard-templates">
+                  {shareCardTemplateOptions.map((option) => (
                     <button
-                      className="secondary-button"
-                      onClick={() =>
-                        copyText(
-                          [result.roast, result.summary, ...result.titles.map((title, index) => `${index + 1}. ${title}`)].join('\n'),
-                          '结果汇总',
-                        )
-                      }
+                      key={option.value}
+                      className={`ghost-chip ${shareCardTemplate === option.value ? 'active' : ''}`}
+                      onClick={() => setShareCardTemplate(option.value)}
                       type="button"
                     >
-                      复制结果汇总
+                      {option.label}
                     </button>
-                    <button className="secondary-button accent-button" disabled={isExporting} onClick={handleExportShareCard} type="button">
-                      {isExporting ? '导出中...' : '导出分享卡'}
-                    </button>
-                  </>
-                ) : null}
+                  ))}
+                </div>
+                <p className="supporting-text">{activeTemplateMeta.description}</p>
               </div>
 
-              {error ? (
-                <div className="error-panel" role="alert">
-                  <p className="error-title">{errorGuidance?.title ?? '这次没跑通'}</p>
-                  <p className="error-detail">{errorGuidance?.detail ?? error}</p>
-                  <p className="error-raw">{error}</p>
-                  <div className="error-actions">
-                    {errorGuidance?.primaryAction && errorGuidance.primaryLabel ? (
-                      <button className="secondary-button slim-button" onClick={() => handleGuidanceAction(errorGuidance.primaryAction!)} type="button">
-                        {errorGuidance.primaryLabel}
-                      </button>
-                    ) : null}
-                    {errorGuidance?.secondaryAction && errorGuidance.secondaryLabel ? (
-                      <button className="ghost-link" onClick={() => handleGuidanceAction(errorGuidance.secondaryAction!)} type="button">
-                        {errorGuidance.secondaryLabel}
-                      </button>
-                    ) : null}
-                  </div>
+              <div className="rewrite-actions">
+                <button className="ghost-chip" disabled={!result} onClick={copyAllResult} type="button">
+                  复制结果汇总
+                </button>
+                <button className="ghost-chip" disabled={!canExport} onClick={() => void handleCopyShareCard()} type="button">
+                  {isExporting ? '处理中...' : '复制分享卡'}
+                </button>
+                <button className="ghost-chip" disabled={!canExport} onClick={() => void handleExportShareCard()} type="button">
+                  {isExporting ? '导出中...' : '导出分享卡'}
+                </button>
+              </div>
+            </div>
+
+            {error ? (
+              <div className="error-card" role="alert">
+                <strong>{errorGuidance?.title ?? '这次没有跑通。'}</strong>
+                <p>{errorGuidance?.detail ?? error}</p>
+                <div className="error-actions">
+                  {errorGuidance?.primaryAction && errorGuidance.primaryLabel ? (
+                    <button
+                      className="primary-button small"
+                      onClick={() => handleGuidanceAction(errorGuidance.primaryAction)}
+                      type="button"
+                    >
+                      {errorGuidance.primaryLabel}
+                    </button>
+                  ) : null}
+
+                  {errorGuidance?.secondaryAction && errorGuidance.secondaryLabel ? (
+                    <button
+                      className="ghost-link"
+                      onClick={() => handleGuidanceAction(errorGuidance.secondaryAction)}
+                      type="button"
+                    >
+                      {errorGuidance.secondaryLabel}
+                    </button>
+                  ) : null}
                 </div>
-              ) : null}
-            </article>
+              </div>
+            ) : null}
           </aside>
         </div>
       </section>
@@ -639,46 +608,42 @@ function App() {
         <div className="section-head">
           <div>
             <p className="eyebrow">输出结果</p>
-            <h2>{result ? '结果已经出来了，而且还能继续改得更顺手' : '开始分析后，这里会变成你的结果舞台'}</h2>
+            <h2>这次不是只给一条文案，而是给你一整套可消费结果</h2>
           </div>
-
-          {result ? (
-            <div className="head-cluster">
-              <span className="badge">{selectedToneMeta.label}</span>
-              <span className="badge subtle-badge">{activeEmail}</span>
-            </div>
-          ) : null}
+          <span className="badge subtle-badge">基于账号：{activeEmail}</span>
         </div>
 
         {result ? (
           <>
             <div className="rewrite-strip">
-              <span className="rewrite-label">二次改写</span>
+              <span className="rewrite-label">继续打磨这条结果</span>
               <div className="rewrite-actions">
+                {rewriteActions.map((action) => (
+                  <button
+                    key={action.value}
+                    className={`ghost-chip rewrite-button ${isRewriting === action.value ? 'busy' : ''}`}
+                    disabled={Boolean(isRewriting)}
+                    onClick={() => void runAnalysis(selectedShot, action.value)}
+                    title={action.description}
+                    type="button"
+                  >
+                    {isRewriting === action.value ? '重写中...' : action.label}
+                  </button>
+                ))}
+
                 {resultVersions.length > 1 ? (
                   <button className="ghost-chip" onClick={restorePreviousVersion} type="button">
                     回到上一版
                   </button>
                 ) : null}
-                {rewriteActions.map((action) => (
-                  <button
-                    key={action.value}
-                    className={`secondary-button rewrite-button ${isRewriting === action.value ? 'busy' : ''}`}
-                    disabled={Boolean(isRewriting) || isAnalyzing}
-                    onClick={() => void runAnalysis(selectedShot, action.value)}
-                    type="button"
-                  >
-                    {isRewriting === action.value ? '改写中...' : action.label}
-                  </button>
-                ))}
               </div>
             </div>
 
             <div className="results-showcase">
-              <article className="hero-result-card">
+              <article className="spotlight-card hero-result-card">
                 <div className="result-topline">
                   <p className="panel-kicker">一句吐槽</p>
-                  <button className="copy-link" onClick={() => copyText(result.roast, '一句吐槽')} type="button">
+                  <button className="copy-link" onClick={() => void copyText(result.roast, '一句吐槽')} type="button">
                     复制
                   </button>
                 </div>
@@ -686,31 +651,20 @@ function App() {
               </article>
 
               <div className="result-side-stack">
-                <article className="result-card spotlight-result">
-                  <div className="result-topline">
-                    <p className="panel-kicker">首推标题</p>
-                    <button className="copy-link" onClick={() => copyText(result.titles[0] ?? '', '首推标题')} type="button">
-                      复制
-                    </button>
-                  </div>
-                  <p className="spotlight-title">{result.titles[0]}</p>
-                  <p className="supporting-text">适合做分享图标题、动态文案，或者 GitHub 首页展示图旁边那一句。</p>
-                </article>
-
-                <article className="result-card">
+                <article className="spotlight-card result-card spotlight-result">
                   <div className="result-topline">
                     <p className="panel-kicker">正经总结</p>
-                    <button className="copy-link" onClick={() => copyText(result.summary, '正经总结')} type="button">
+                    <button className="copy-link" onClick={() => void copyText(result.summary, '正经总结')} type="button">
                       复制
                     </button>
                   </div>
                   <p>{result.summary}</p>
                 </article>
 
-                <article className="result-card">
+                <article className="spotlight-card result-card">
                   <div className="result-topline">
                     <p className="panel-kicker">分享标题</p>
-                    <button className="copy-link" onClick={() => copyText(result.titles.join('\n'), '分享标题')} type="button">
+                    <button className="copy-link" onClick={() => void copyText(result.titles.join('\n'), '分享标题')} type="button">
                       复制
                     </button>
                   </div>
@@ -725,7 +679,7 @@ function App() {
           </>
         ) : (
           <div className="empty-state wide richer">
-            <p>这里会自动整理出一句吐槽、一段总结和三个标题。出结果后还能继续点“更毒一点”“更短一点”这种二次改写。</p>
+            <p>这里会自动整理出一句吐槽、一段总结和三个标题。出结果后还能继续点“更毒一点”“更短一点”这类二次改写。</p>
           </div>
         )}
       </section>
@@ -783,7 +737,7 @@ function App() {
                 <span>1</span>
                 <div>
                   <strong>先把截图放进来</strong>
-                  <p>你可以拖图、点按钮选图，或者直接 Ctrl+V 粘贴截图。</p>
+                  <p>你可以拖图、点按钮选图，或者直接 Ctrl + V 粘贴截图。</p>
                 </div>
               </div>
               <div className="onboarding-step">
@@ -797,7 +751,7 @@ function App() {
                 <span>3</span>
                 <div>
                   <strong>分析后继续打磨</strong>
-                  <p>除了复制和导出，你现在还能继续把结果改得更毒、更短或者更像传播标题。</p>
+                  <p>除了复制和导出，你现在还能切换分享模板，并把分享卡直接复制到剪贴板。</p>
                 </div>
               </div>
             </div>
@@ -937,10 +891,23 @@ function formatTime(value: string) {
 
 function formatAccountSyncText(account: CockpitAccountState | null) {
   if (!account?.updatedAt) {
-    return '账号变化会自动同步到这个应用。整个链路只读，不会写回 Cockpit。'
+    return '账号变化会自动同步到这个应用。整条链路只读，不会写回 Cockpit。'
   }
 
-  return `最近同步于 ${new Date(account.updatedAt).toLocaleString('zh-CN', { hour12: false })}，整个链路只读，不会写回 Cockpit。`
+  return `最近同步于 ${new Date(account.updatedAt).toLocaleString('zh-CN', { hour12: false })}，整条链路只读，不会写回 Cockpit。`
+}
+
+function dataUrlToBlob(dataUrl: string) {
+  const [meta, base64] = dataUrl.split(',')
+  const mimeType = meta.match(/data:(.*?);base64/)?.[1] ?? 'image/png'
+  const binary = atob(base64)
+  const bytes = new Uint8Array(binary.length)
+
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index)
+  }
+
+  return new Blob([bytes], { type: mimeType })
 }
 
 export default App

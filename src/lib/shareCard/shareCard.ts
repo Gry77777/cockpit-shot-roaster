@@ -1,5 +1,4 @@
-const CARD_WIDTH = 1600
-const CARD_HEIGHT = 960
+export type ShareCardTemplate = 'wide' | 'square'
 
 interface ShareCardPayload {
   previewDataUrl: string
@@ -10,7 +9,33 @@ interface ShareCardPayload {
   titles: string[]
 }
 
-export function buildShareCardSvg(payload: ShareCardPayload) {
+interface ShareCardCanvasSize {
+  width: number
+  height: number
+}
+
+export const shareCardTemplateOptions: Array<{ value: ShareCardTemplate; label: string; description: string }> = [
+  { value: 'wide', label: '宽屏', description: '适合 README、横版社交图。' },
+  { value: 'square', label: '方卡', description: '适合朋友圈、动态和头像流。' },
+]
+
+export function getShareCardCanvasSize(template: ShareCardTemplate): ShareCardCanvasSize {
+  return template === 'square' ? { width: 1080, height: 1080 } : { width: 1600, height: 960 }
+}
+
+export function buildShareCardSvg(payload: ShareCardPayload, template: ShareCardTemplate = 'wide') {
+  return template === 'square' ? buildSquareShareCardSvg(payload) : buildWideShareCardSvg(payload)
+}
+
+export function buildShareCardFileName(template: ShareCardTemplate = 'wide') {
+  const now = new Date()
+  const date = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`
+  const time = `${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`
+  return `shot-roaster-${template}-${date}-${time}.png`
+}
+
+function buildWideShareCardSvg(payload: ShareCardPayload) {
+  const { width, height } = getShareCardCanvasSize('wide')
   const roastLines = wrapText(payload.roast, 18, 6)
   const summaryLines = wrapText(payload.summary, 24, 4)
   const titleLines = payload.titles.slice(0, 3).map((title, index) => `${index + 1}. ${title}`)
@@ -18,7 +43,7 @@ export function buildShareCardSvg(payload: ShareCardPayload) {
   const exportedAt = new Date().toLocaleString('zh-CN', { hour12: false })
 
   return `
-  <svg xmlns="http://www.w3.org/2000/svg" width="${CARD_WIDTH}" height="${CARD_HEIGHT}" viewBox="0 0 ${CARD_WIDTH} ${CARD_HEIGHT}">
+  <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
     <defs>
       <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
         <stop offset="0%" stop-color="#120f16" />
@@ -41,10 +66,10 @@ export function buildShareCardSvg(payload: ShareCardPayload) {
       </clipPath>
     </defs>
 
-    <rect width="${CARD_WIDTH}" height="${CARD_HEIGHT}" rx="44" fill="url(#bg)" />
+    <rect width="${width}" height="${height}" rx="44" fill="url(#bg)" />
     <circle cx="180" cy="120" r="160" fill="#f7a76a" fill-opacity="0.08" filter="url(#glow)" />
     <circle cx="1410" cy="120" r="140" fill="#7ed6ff" fill-opacity="0.08" filter="url(#glow)" />
-    <rect x="38" y="38" width="${CARD_WIDTH - 76}" height="${CARD_HEIGHT - 76}" rx="40" fill="none" stroke="rgba(255,255,255,0.12)" />
+    <rect x="38" y="38" width="${width - 76}" height="${height - 76}" rx="40" fill="none" stroke="rgba(255,255,255,0.12)" />
 
     <text x="72" y="86" fill="#f7a76a" font-size="24" letter-spacing="6" font-family="Microsoft YaHei UI, PingFang SC, sans-serif">SCREENSHOT ROASTER</text>
     <text x="72" y="690" fill="#fff4e7" font-size="70" font-weight="800" font-family="Microsoft YaHei UI, PingFang SC, sans-serif">截图吐槽机</text>
@@ -75,11 +100,57 @@ export function buildShareCardSvg(payload: ShareCardPayload) {
   `.trim()
 }
 
-export function buildShareCardFileName() {
-  const now = new Date()
-  const date = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`
-  const time = `${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`
-  return `shot-roaster-${date}-${time}.png`
+function buildSquareShareCardSvg(payload: ShareCardPayload) {
+  const { width, height } = getShareCardCanvasSize('square')
+  const roastLines = wrapText(payload.roast, 16, 6)
+  const summaryLines = wrapText(payload.summary, 18, 4)
+  const titleLines = payload.titles.slice(0, 3).map((title, index) => `${index + 1}. ${title}`)
+  const accountText = payload.accountEmail?.trim() || '未知账号'
+
+  return `
+  <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+    <defs>
+      <linearGradient id="bgSquare" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#0f1219" />
+        <stop offset="50%" stop-color="#12171f" />
+        <stop offset="100%" stop-color="#181114" />
+      </linearGradient>
+      <linearGradient id="accentSquare" x1="0%" y1="0%" x2="100%" y2="0%">
+        <stop offset="0%" stop-color="#ff9a62" />
+        <stop offset="100%" stop-color="#8ed8ff" />
+      </linearGradient>
+      <clipPath id="shotClipSquare">
+        <rect x="80" y="104" width="920" height="460" rx="42" ry="42" />
+      </clipPath>
+    </defs>
+
+    <rect width="${width}" height="${height}" rx="48" fill="url(#bgSquare)" />
+    <rect x="30" y="30" width="${width - 60}" height="${height - 60}" rx="42" fill="none" stroke="rgba(255,255,255,0.12)" />
+
+    <text x="84" y="80" fill="#ffb47f" font-size="24" letter-spacing="6" font-family="Microsoft YaHei UI, PingFang SC, sans-serif">SHOT ROASTER</text>
+    <image href="${payload.previewDataUrl}" x="80" y="104" width="920" height="460" preserveAspectRatio="xMidYMid slice" clip-path="url(#shotClipSquare)" />
+    <rect x="80" y="104" width="920" height="460" rx="42" fill="none" stroke="rgba(255,255,255,0.12)" />
+
+    <text x="84" y="640" fill="#fff4e7" font-size="58" font-weight="800" font-family="Microsoft YaHei UI, PingFang SC, sans-serif">这张图的梗点，已经整理好了。</text>
+    <text x="84" y="686" fill="#cabfb0" font-size="24" font-family="Microsoft YaHei UI, PingFang SC, sans-serif">更适合发动态、朋友圈和方形卡片流。</text>
+
+    <rect x="80" y="724" width="920" height="188" rx="34" fill="rgba(255,255,255,0.045)" stroke="rgba(255,255,255,0.08)" />
+    <text x="118" y="780" fill="#ffb47f" font-size="22" letter-spacing="4" font-family="Microsoft YaHei UI, PingFang SC, sans-serif">一句吐槽</text>
+    ${renderTextBlock(roastLines, 118, 836, 38, 18, '#fff7ed', 34)}
+
+    <rect x="80" y="936" width="440" height="96" rx="28" fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.08)" />
+    <text x="112" y="974" fill="#8ed8ff" font-size="18" letter-spacing="3" font-family="Microsoft YaHei UI, PingFang SC, sans-serif">正经总结</text>
+    ${renderTextBlock(summaryLines, 112, 1010, 22, 14, '#d8d3c8', 20)}
+
+    <rect x="548" y="936" width="452" height="96" rx="28" fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.08)" />
+    <text x="580" y="974" fill="#ffb47f" font-size="18" letter-spacing="3" font-family="Microsoft YaHei UI, PingFang SC, sans-serif">分享标题</text>
+    ${renderTextBlock(titleLines, 580, 1010, 22, 14, '#eef7ff', 20)}
+
+    <rect x="80" y="52" width="132" height="42" rx="21" fill="url(#accentSquare)" />
+    <text x="146" y="80" text-anchor="middle" fill="#181311" font-size="20" font-weight="700" font-family="Microsoft YaHei UI, PingFang SC, sans-serif">${escapeXml(payload.toneLabel)}</text>
+    <text x="996" y="82" text-anchor="end" fill="#ffffff" font-size="20" font-family="Microsoft YaHei UI, PingFang SC, sans-serif">${escapeXml(accountText)}</text>
+  </svg>
+  `.trim()
 }
 
 function pad(value: number) {

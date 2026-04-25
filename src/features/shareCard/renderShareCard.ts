@@ -1,12 +1,12 @@
-export async function renderShareCardPngDataUrl(svg: string) {
+export async function renderShareCardPngDataUrl(svg: string, width: number, height: number) {
   const svgBlob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' })
   const objectUrl = URL.createObjectURL(svgBlob)
 
   try {
     const image = await loadImage(objectUrl)
     const canvas = document.createElement('canvas')
-    canvas.width = 1600
-    canvas.height = 960
+    canvas.width = width
+    canvas.height = height
 
     const context = canvas.getContext('2d')
     if (!context) {

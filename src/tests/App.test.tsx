@@ -1,5 +1,10 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+
+vi.mock('@/features/shareCard/renderShareCard', () => ({
+  renderShareCardPngDataUrl: vi.fn().mockResolvedValue('data:image/png;base64,AAAA'),
+}))
+
 import App from '@/App'
 import type { AnalysisResult } from '@/lib/contracts'
 
@@ -18,8 +23,8 @@ function mockCockpitBridge() {
 function createAnalysisResult(overrides?: Partial<AnalysisResult>): AnalysisResult {
   return {
     roast: '这张图的气氛像是灵魂刚上线，但情绪缓存还没同步完。',
-    summary: '画面主体是一张表情偏空白的人物特写，重点在眼神和停顿感，整体像一瞬间的情绪卡顿。',
-    titles: ['这眼神像刚加载完人生', '情绪上线了，但进度条没满', '看起来很平静，其实内存占满了'],
+    summary: '画面主体是一张表情偏空白的人物特写，重点在眼神和停顿感，整体像一个瞬间的情绪卡顿。',
+    titles: ['这眼神像刚加载完人生', '情绪上线了，但进度条没满', '看起来很平静，其实内存已经占满'],
     ...overrides,
   }
 }
@@ -58,11 +63,10 @@ function createDroppedFile(path: string) {
 
 async function dropImage(path = 'C:\\shots\\demo.png') {
   const droppedFile = createDroppedFile(path)
-  const dropZone = screen.getByLabelText('截图拖放区')
-
-  fireEvent.drop(dropZone, {
+  fireEvent.drop(screen.getByLabelText('截图拖放区'), {
     dataTransfer: {
       files: [droppedFile],
+      items: [],
     },
   })
 
@@ -76,9 +80,10 @@ describe('App', () => {
     cleanup()
     window.localStorage.clear()
     vi.restoreAllMocks()
+    vi.unstubAllGlobals()
   })
 
-  it('renders the polished Chinese shell and current Codex account', async () => {
+  it('renders the Chinese desktop shell and current Codex account', async () => {
     mockCockpitBridge()
 
     render(<App />)
@@ -126,10 +131,7 @@ describe('App', () => {
     const rewrittenResult = createAnalysisResult({
       roast: '这一版明显更冲，像把原吐槽拿去加了双倍锐度。',
     })
-    window.cockpitShot.analyzeScreenshot = vi
-      .fn()
-      .mockResolvedValueOnce(initialResult)
-      .mockResolvedValueOnce(rewrittenResult)
+    window.cockpitShot.analyzeScreenshot = vi.fn().mockResolvedValueOnce(initialResult).mockResolvedValueOnce(rewrittenResult)
 
     render(<App />)
     await dismissOnboardingIfPresent()
@@ -162,10 +164,7 @@ describe('App', () => {
     const rewrittenResult = createAnalysisResult({
       roast: '第二版已经更狠了，像把原吐槽重新磨了一遍刀。',
     })
-    window.cockpitShot.analyzeScreenshot = vi
-      .fn()
-      .mockResolvedValueOnce(initialResult)
-      .mockResolvedValueOnce(rewrittenResult)
+    window.cockpitShot.analyzeScreenshot = vi.fn().mockResolvedValueOnce(initialResult).mockResolvedValueOnce(rewrittenResult)
 
     render(<App />)
     await dismissOnboardingIfPresent()
@@ -207,6 +206,67 @@ describe('App', () => {
     })
   })
 
+  it('exports the square share card variant after switching templates', async () => {
+    mockCockpitBridge()
+    mockFileReader('data:image/png;base64,dragged-preview')
+    window.cockpitShot.analyzeScreenshot = vi.fn().mockResolvedValue(createAnalysisResult())
+    window.cockpitShot.saveShareCard = vi.fn().mockResolvedValue('C:\\exports\\shot-roaster-square.png')
+
+    render(<App />)
+    await dismissOnboardingIfPresent()
+    await dropImage()
+
+    fireEvent.click(screen.getByRole('button', { name: '开始分析' }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '导出分享卡' })).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '方卡' }))
+    fireEvent.click(screen.getByRole('button', { name: '导出分享卡' }))
+
+    await waitFor(() => {
+      expect(window.cockpitShot.saveShareCard).toHaveBeenCalledWith(expect.any(String), expect.stringContaining('square'))
+    })
+  })
+
+  it('copies the generated share card to the clipboard', async () => {
+    mockCockpitBridge()
+    mockFileReader('data:image/png;base64,dragged-preview')
+    window.cockpitShot.analyzeScreenshot = vi.fn().mockResolvedValue(createAnalysisResult())
+
+    const write = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: vi.fn().mockResolvedValue(undefined),
+        write,
+      },
+    })
+
+    class MockClipboardItem {
+      constructor(readonly data: Record<string, Blob>) {}
+    }
+
+    vi.stubGlobal('ClipboardItem', MockClipboardItem)
+
+    render(<App />)
+    await dismissOnboardingIfPresent()
+    await dropImage()
+
+    fireEvent.click(screen.getByRole('button', { name: '开始分析' }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '复制分享卡' })).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '复制分享卡' }))
+
+    await waitFor(() => {
+      expect(write).toHaveBeenCalledTimes(1)
+    })
+  })
+
   it('shows actionable timeout guidance and can focus the API key field', async () => {
     mockCockpitBridge()
     mockFileReader('data:image/png;base64,dragged-preview')
@@ -219,12 +279,12 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: '开始分析' }))
 
     await waitFor(() => {
-      expect(screen.getByText('这次请求超时了')).toBeInTheDocument()
+      expect(screen.getByText('这次请求超时了。')).toBeInTheDocument()
       expect(screen.getByRole('button', { name: '改填 API Key' })).toBeInTheDocument()
     })
 
     fireEvent.click(screen.getByRole('button', { name: '改填 API Key' }))
 
-    expect(screen.getByLabelText('OpenAI API Key')).toHaveFocus()
+    expect(screen.getByPlaceholderText('可留空；如果系统里已经设置 OPENAI_API_KEY')).toHaveFocus()
   })
 })
