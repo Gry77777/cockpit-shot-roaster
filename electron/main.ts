@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, Menu, Tray } from 'electron'
 import { existsSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -8,8 +8,21 @@ import { resolveWindowAssetPaths } from './services/windowPaths'
 
 const CLIPBOARD_IMPORT_SHORTCUT = 'CommandOrControl+Shift+V'
 const CLIPBOARD_EMPTY_MESSAGE = '剪贴板里还没有可用图片。先截一张图，再按全局快捷键。'
+const APP_NAME = '截图吐槽机'
 
 let mainWindow: BrowserWindow | null = null
+let appTray: Tray | null = null
+
+const hasSingleInstanceLock = app.requestSingleInstanceLock()
+
+if (!hasSingleInstanceLock) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    const window = ensureMainWindow()
+    revealWindow(window)
+  })
+}
 
 function createMainWindow() {
   const appRoot = app.getAppPath()
@@ -23,7 +36,7 @@ function createMainWindow() {
     minHeight: 820,
     show: false,
     backgroundColor: '#080b10',
-    title: '截图吐槽机',
+    title: APP_NAME,
     titleBarStyle: process.platform === 'win32' ? 'hidden' : 'hiddenInset',
     titleBarOverlay:
       process.platform === 'win32'
@@ -63,7 +76,8 @@ function createMainWindow() {
   return window
 }
 
-app.whenReady().then(() => {
+if (hasSingleInstanceLock) {
+  app.whenReady().then(() => {
   ipcMain.handle('cockpit:get-current-account', async () => readCurrentAccountFile())
 
   ipcMain.handle('dialog:pick-screenshot', async () => {
@@ -123,6 +137,7 @@ app.whenReady().then(() => {
   })
 
   createMainWindow()
+  createTray()
 
   globalShortcut.register(CLIPBOARD_IMPORT_SHORTCUT, () => {
     void importClipboardImageIntoWindow()
@@ -137,14 +152,19 @@ app.whenReady().then(() => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createMainWindow()
+      createTray()
+      return
     }
+
+    revealWindow(ensureMainWindow())
   })
 
   app.on('before-quit', () => {
     stopWatchingAccount()
     globalShortcut.unregisterAll()
   })
-})
+  })
+}
 
 async function importClipboardImageIntoWindow() {
   const window = ensureMainWindow()
@@ -200,6 +220,46 @@ function ensureMainWindow() {
   }
 
   return createMainWindow()
+}
+
+function createTray() {
+  if (appTray) {
+    return appTray
+  }
+
+  const iconPath = resolveWindowIconPath(app.getAppPath())
+  if (!iconPath) {
+    return null
+  }
+
+  appTray = new Tray(iconPath)
+  appTray.setToolTip(APP_NAME)
+  appTray.setContextMenu(
+    Menu.buildFromTemplate([
+      {
+        label: '打开主窗口',
+        click: () => revealWindow(ensureMainWindow()),
+      },
+      {
+        label: '从剪贴板导入截图',
+        click: () => {
+          void importClipboardImageIntoWindow()
+        },
+      },
+      {
+        type: 'separator',
+      },
+      {
+        label: '退出',
+        role: 'quit',
+      },
+    ]),
+  )
+  appTray.on('click', () => {
+    revealWindow(ensureMainWindow())
+  })
+
+  return appTray
 }
 
 function revealWindow(window: BrowserWindow) {

@@ -471,8 +471,8 @@ function App() {
           </article>
           <article className="info-card">
             <p className="panel-kicker">这版新增</p>
-            <strong>分享卡模板 + 一键复制图片</strong>
-            <p>导出不再只有一种固定样式，结果出来后可以直接切到宽屏或方卡，再决定复制还是保存。</p>
+            <strong>全局导入 + 系统托盘 + 单实例唤醒</strong>
+            <p>现在窗口没在前台也能用快捷键导入剪贴板，系统托盘能直接拉起主窗口，重复打开应用也只会唤醒当前这一份。</p>
           </article>
         </div>
       </section>
@@ -483,7 +483,7 @@ function App() {
             <p className="eyebrow">工作区</p>
             <h2>第一版已经能跑，但这版开始更像一个真软件了</h2>
           </div>
-          <span className="badge subtle-badge">全局导入 {globalClipboardShortcutLabel}</span>
+          <span className="badge subtle-badge">全局导入 + 托盘入口</span>
         </div>
 
         <div className="workspace-grid">
