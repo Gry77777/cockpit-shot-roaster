@@ -629,7 +629,8 @@ ol {
 .primary-button,
 .secondary-button,
 .copy-link,
-.ghost-link {
+.ghost-link,
+.toggle-card {
   border: 0;
   cursor: pointer;
   transition:
@@ -644,7 +645,8 @@ ol {
 .primary-button:hover,
 .secondary-button:hover,
 .copy-link:hover,
-.ghost-link:hover {
+.ghost-link:hover,
+.toggle-card:hover {
   transform: translateY(-1px);
 }
 
@@ -734,6 +736,10 @@ ol {
   color: var(--text-main);
 }
 
+.top-icon-button {
+  padding-inline: 18px;
+}
+
 .accent-button {
   background:
     linear-gradient(135deg, rgba(247, 167, 106, 0.18), rgba(126, 214, 255, 0.12)),
@@ -753,6 +759,11 @@ ol {
   border-radius: 999px;
 }
 
+.slim-button {
+  padding: 10px 14px;
+  border-radius: 14px;
+}
+
 .error-banner {
   margin-top: 14px;
   padding: 13px 14px;
@@ -761,6 +772,80 @@ ol {
   background: rgba(255, 112, 112, 0.14);
   color: #ffc5c5;
   line-height: 1.55;
+}
+
+.error-panel {
+  margin-top: 14px;
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 112, 112, 0.18);
+  background:
+    radial-gradient(circle at top right, rgba(255, 135, 135, 0.12), transparent 32%),
+    rgba(255, 112, 112, 0.12);
+}
+
+.error-title {
+  font-size: 1rem;
+  font-weight: 800;
+  color: #ffe4e4;
+}
+
+.error-detail,
+.error-raw {
+  margin-top: 8px;
+  line-height: 1.65;
+}
+
+.error-detail {
+  color: #ffd8d8;
+}
+
+.error-raw {
+  color: rgba(255, 225, 225, 0.72);
+  font-size: 0.92rem;
+}
+
+.error-actions {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.rewrite-strip {
+  margin-bottom: 18px;
+  padding: 16px 18px;
+  border-radius: 22px;
+  border: 1px solid var(--line);
+  background:
+    radial-gradient(circle at left center, rgba(246, 165, 98, 0.12), transparent 28%),
+    rgba(255, 255, 255, 0.03);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.rewrite-label {
+  color: #ffd8b5;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.rewrite-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.rewrite-button.busy {
+  border: 1px solid rgba(246, 165, 98, 0.24);
+  background:
+    radial-gradient(circle at top right, rgba(246, 165, 98, 0.16), transparent 28%),
+    rgba(255, 255, 255, 0.08);
 }
 
 .results-showcase {
@@ -945,6 +1030,10 @@ ol {
   box-shadow: 0 30px 90px rgba(0, 0, 0, 0.38);
 }
 
+.settings-card {
+  width: min(880px, 100%);
+}
+
 .onboarding-card h2 {
   margin-top: 10px;
   font-size: clamp(2rem, 4vw, 2.6rem);
@@ -992,6 +1081,73 @@ ol {
 .onboarding-button {
   margin-top: 18px;
   min-width: 220px;
+}
+
+.settings-grid {
+  margin-top: 22px;
+  display: grid;
+  gap: 16px;
+}
+
+.settings-block {
+  padding: 18px;
+  border-radius: 22px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.settings-block strong {
+  display: block;
+  font-size: 1rem;
+}
+
+.settings-block p {
+  margin-top: 8px;
+  color: var(--text-dim);
+  line-height: 1.65;
+}
+
+.settings-option-grid {
+  margin-top: 14px;
+  display: grid;
+  gap: 10px;
+}
+
+.toggle-card {
+  margin-top: 14px;
+  width: 100%;
+  padding: 16px 18px;
+  text-align: left;
+  border-radius: 20px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-main);
+}
+
+.toggle-card span {
+  display: block;
+  color: var(--text-soft);
+  font-size: 0.86rem;
+}
+
+.toggle-card strong {
+  display: block;
+  margin-top: 8px;
+}
+
+.toggle-card.active {
+  border-color: rgba(142, 216, 255, 0.28);
+  background:
+    radial-gradient(circle at top right, rgba(142, 216, 255, 0.14), transparent 28%),
+    rgba(255, 255, 255, 0.05);
+}
+
+.settings-actions {
+  margin-top: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
 }
 
 @keyframes float-orb {
@@ -1068,7 +1224,9 @@ ol {
   .section-head,
   .panel-topline,
   .result-topline,
-  .history-topline {
+  .history-topline,
+  .rewrite-strip,
+  .settings-actions {
     flex-direction: column;
     align-items: flex-start;
   }
@@ -1097,5 +1255,9 @@ ol {
 
   .onboarding-step {
     grid-template-columns: 1fr;
+  }
+
+  .rewrite-actions {
+    justify-content: flex-start;
   }
 }

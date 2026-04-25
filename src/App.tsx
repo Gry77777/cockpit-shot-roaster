@@ -1,38 +1,57 @@
 import type { DragEvent } from 'react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { loadHistory, saveHistory, type AnalysisHistoryEntry } from './features/history/historyStore'
 import { renderShareCardPngDataUrl } from './features/shareCard/renderShareCard'
-import type { AnalysisResult, CockpitAccountState, PickedScreenshot, RoastTone } from './lib/contracts'
+import { dismissOnboardingPreference, hasDismissedOnboarding, loadAppSettings, resetOnboardingPreference, saveAppSettings, type AppSettings } from './lib/appSettings'
+import type {
+  AnalysisResult,
+  CockpitAccountState,
+  PickedScreenshot,
+  RoastTone,
+  RewriteMode,
+} from './lib/contracts'
+import { getErrorGuidance } from './lib/errorGuidance'
 import { buildShareCardFileName, buildShareCardSvg } from './lib/shareCard/shareCard'
 
 const toneOptions: Array<{ label: string; value: RoastTone; description: string }> = [
-  { label: '毒舌', value: 'roast', description: '更冲一点，适合做带梗吐槽。' },
-  { label: '温柔', value: 'gentle', description: '轻松一点，像朋友帮你点评。' },
-  { label: '打工人', value: 'work', description: '更像会上复盘，但带一点幽默。' },
+  { label: '毒舌', value: 'roast', description: '更冲一点，适合把截图里的情绪值直接拉满。' },
+  { label: '温柔', value: 'gentle', description: '轻一点，更像朋友在旁边帮你补一句。' },
+  { label: '打工人', value: 'work', description: '像复盘会发言，但保留一点幽默感。' },
+]
+
+const rewriteActions: Array<{ label: string; value: RewriteMode; description: string }> = [
+  { label: '更毒一点', value: 'spicier', description: '把梗味往上推一档。' },
+  { label: '更短一点', value: 'shorter', description: '压成更利落的短句。' },
+  { label: '标题党一点', value: 'headline', description: '让标题更像能直接发出去。' },
 ]
 
 const supportedImagePattern = /\.(png|jpe?g|webp|gif|bmp|svg)$/i
-const ONBOARDING_KEY = 'cockpit-shot-roaster-onboarding-dismissed'
 
 type DroppedImageFile = File & { path?: string }
 
 function App() {
   const [account, setAccount] = useState<CockpitAccountState | null>(null)
+  const [settings, setSettings] = useState<AppSettings>(() => loadAppSettings())
+  const [draftSettings, setDraftSettings] = useState<AppSettings>(() => loadAppSettings())
   const [selectedShot, setSelectedShot] = useState<PickedScreenshot | null>(null)
-  const [tone, setTone] = useState<RoastTone>('roast')
+  const [tone, setTone] = useState<RoastTone>(() => loadAppSettings().defaultTone)
   const [apiKey, setApiKey] = useState('')
   const [result, setResult] = useState<AnalysisResult | null>(null)
   const [history, setHistory] = useState<AnalysisHistoryEntry[]>(() => loadHistory())
   const [error, setError] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [isRewriting, setIsRewriting] = useState<RewriteMode | null>(null)
   const [isDragActive, setIsDragActive] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
-  const [showOnboarding, setShowOnboarding] = useState(() => !readBooleanPreference(ONBOARDING_KEY))
+  const [showOnboarding, setShowOnboarding] = useState(() => !hasDismissedOnboarding())
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const apiKeyInputRef = useRef<HTMLInputElement | null>(null)
 
   const selectedToneMeta = toneOptions.find((item) => item.value === tone) ?? toneOptions[0]
-  const activeEmail = account?.email ?? '正在读取账号...'
-  const stageStatus = !selectedShot ? '待选图' : result ? '可导出' : '待分析'
+  const activeEmail = account?.email ?? '正在读取 Codex 账号...'
+  const stageStatus = !selectedShot ? '待选图' : result ? '可导出' : isAnalyzing ? '分析中' : '待分析'
+  const errorGuidance = getErrorGuidance(error)
 
   useEffect(() => {
     let isMounted = true
@@ -45,7 +64,7 @@ function App() {
 
     const unsubscribe = window.cockpitShot.onCurrentAccountChange((value) => {
       setAccount(value)
-      setToast('Codex 账号已同步到当前桌面应用。')
+      setToast('Codex 账号已切换，桌面应用也已经跟上。')
     })
 
     return () => {
@@ -57,6 +76,10 @@ function App() {
   useEffect(() => {
     saveHistory(history)
   }, [history])
+
+  useEffect(() => {
+    saveAppSettings(settings)
+  }, [settings])
 
   useEffect(() => {
     if (!toast) {
@@ -73,6 +96,14 @@ function App() {
   }, [toast])
 
   useEffect(() => {
+    if (!isSettingsOpen) {
+      return
+    }
+
+    setDraftSettings(settings)
+  }, [isSettingsOpen, settings])
+
+  useEffect(() => {
     const handlePaste = async (event: ClipboardEvent) => {
       const pastedFile = extractImageFromTransfer(event.clipboardData)
       if (!pastedFile) {
@@ -83,12 +114,9 @@ function App() {
 
       try {
         const picked = await readDroppedImage(pastedFile)
-        setSelectedShot(picked)
-        setResult(null)
-        setError(null)
-        setToast('粘贴成功，当前截图已经进入舞台。')
+        await applyPickedShot(picked, '截图已从剪贴板进入舞台。')
       } catch (caughtError) {
-        setError(caughtError instanceof Error ? caughtError.message : '读取粘贴图片失败。')
+        setError(caughtError instanceof Error ? caughtError.message : '读取剪贴板图片失败。')
       }
     }
 
@@ -97,7 +125,21 @@ function App() {
     return () => {
       window.removeEventListener('paste', handlePaste)
     }
-  }, [])
+  }, [settings.autoAnalyzeAfterImport, tone, account?.email, apiKey, result])
+
+  async function applyPickedShot(picked: PickedScreenshot, message: string) {
+    setSelectedShot(picked)
+    setResult(null)
+    setError(null)
+
+    if (settings.autoAnalyzeAfterImport) {
+      setToast('截图已导入，正在自动分析。')
+      await runAnalysis(picked)
+      return
+    }
+
+    setToast(message)
+  }
 
   async function handlePickScreenshot() {
     const picked = await window.cockpitShot.pickScreenshot()
@@ -105,34 +147,34 @@ function App() {
       return
     }
 
-    setSelectedShot(picked)
-    setResult(null)
-    setError(null)
-    setToast('截图已经进入舞台，可以直接开始分析。')
+    await applyPickedShot(picked, '截图已就位，可以直接开始分析。')
   }
 
-  async function handleAnalyze() {
-    if (!selectedShot) {
-      setError('请先选择一张截图。')
+  async function runAnalysis(targetShot = selectedShot, rewriteMode?: RewriteMode) {
+    if (!targetShot) {
+      setError('请先放一张截图进来。')
       return
     }
 
     try {
-      setIsAnalyzing(true)
+      setIsAnalyzing(!rewriteMode)
+      setIsRewriting(rewriteMode ?? null)
       setError(null)
 
       const nextResult = await window.cockpitShot.analyzeScreenshot({
-        imagePath: selectedShot.path,
+        imagePath: targetShot.path,
         tone,
         activeEmail: account?.email ?? null,
         apiKey: apiKey.trim() || undefined,
+        rewriteMode,
+        previousResult: rewriteMode ? result : undefined,
       })
 
       const nextEntry: AnalysisHistoryEntry = {
         id: `${Date.now()}`,
         createdAt: new Date().toISOString(),
-        imagePath: selectedShot.path,
-        previewDataUrl: selectedShot.previewDataUrl,
+        imagePath: targetShot.path,
+        previewDataUrl: targetShot.previewDataUrl,
         tone,
         accountEmail: account?.email ?? null,
         result: nextResult,
@@ -140,11 +182,12 @@ function App() {
 
       setResult(nextResult)
       setHistory((current) => [nextEntry, ...current].slice(0, 6))
-      setToast('新结果已经生成，可以复制或者导出分享卡。')
+      setToast(rewriteMode ? '这一版已经重写好了。' : '结果已生成，可以直接复制或导出。')
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : '截图分析失败。')
     } finally {
       setIsAnalyzing(false)
+      setIsRewriting(null)
     }
   }
 
@@ -206,16 +249,13 @@ function App() {
 
     const droppedFile = Array.from(event.dataTransfer.files).find(isSupportedImageFile)
     if (!droppedFile) {
-      setError('只能拖入图片文件。')
+      setError('这里只能拖入图片文件。')
       return
     }
 
     try {
       const picked = await readDroppedImage(droppedFile as DroppedImageFile)
-      setSelectedShot(picked)
-      setResult(null)
-      setError(null)
-      setToast('拖入成功，当前截图已经替换。')
+      await applyPickedShot(picked, '截图已替换，可以继续分析。')
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : '读取拖入图片失败。')
     }
@@ -238,19 +278,46 @@ function App() {
     setTone(entry.tone)
     setResult(entry.result)
     setError(null)
-    setToast('历史记录已放回舞台。')
+    setToast('这条历史结果已经放回当前舞台。')
   }
 
   function dismissOnboarding() {
-    window.localStorage.setItem(ONBOARDING_KEY, 'true')
+    dismissOnboardingPreference()
     setShowOnboarding(false)
+  }
+
+  function openSettings() {
+    setDraftSettings(settings)
+    setIsSettingsOpen(true)
+  }
+
+  function saveSettings() {
+    setSettings(draftSettings)
+    setTone(draftSettings.defaultTone)
+    setToast('偏好设置已更新。')
+    setIsSettingsOpen(false)
+  }
+
+  function replayOnboarding() {
+    resetOnboardingPreference()
+    setIsSettingsOpen(false)
+    setShowOnboarding(true)
+  }
+
+  function handleGuidanceAction(action: 'retry' | 'focus-api') {
+    if (action === 'retry') {
+      void runAnalysis()
+      return
+    }
+
+    apiKeyInputRef.current?.focus()
   }
 
   return (
     <main className="shell">
       <header className="app-bar">
         <div className="brand-lockup">
-          <div className="brand-mark" aria-hidden="true">
+          <div aria-hidden="true" className="brand-mark">
             SR
           </div>
           <div>
@@ -260,36 +327,39 @@ function App() {
         </div>
 
         <div className="head-cluster top-actions">
-          <span className="badge strong-badge">桌面安装版</span>
+          <span className="badge strong-badge">可安装软件</span>
           <span className="badge subtle-badge">只读监听 Codex</span>
+          <button className="secondary-button top-icon-button" onClick={openSettings} type="button">
+            偏好设置
+          </button>
         </div>
       </header>
 
       <section className="hero-panel">
         <div className="hero-copyblock">
           <p className="eyebrow">产品气质</p>
-          <h2 className="hero-headline">把截图变成一句能发出去的梗</h2>
-          <p className="hero-subtitle">只读联动当前 Codex 账号，不改 Cockpit 任何源码、逻辑和原始体验。</p>
+          <h2 className="hero-headline">把截图变成一段能直接发出去的结果</h2>
+          <p className="hero-subtitle">只读联动当前 Codex 账号，不改 Cockpit 原有代码、不碰原有逻辑。</p>
           <p className="hero-copy">
-            这不是一块冷冰冰的调试面板，而是一个更像成品的软件界面。你可以拖图、选语气、生成吐槽，再一键导出分享卡，
-            直接把结果拿去发群、发推或者放进 GitHub README。
+            你可以拖图、选语气、生成吐槽，再一键导出分享卡。现在这版还多了结果二次改写、失败下一步引导和偏好设置，
+            更像一个真正能长期留在桌面上的小工具。
           </p>
 
           <div className="hero-highlights">
             <article className="highlight-card">
               <span>01</span>
-              <strong>拖拽即用</strong>
-              <p>截图可以直接丢进舞台，换图不需要重新找按钮。</p>
+              <strong>接图够快</strong>
+              <p>支持拖图、选图和 Ctrl+V 粘贴，导入后也能按偏好自动开始分析。</p>
             </article>
             <article className="highlight-card">
               <span>02</span>
-              <strong>结果能发</strong>
-              <p>一句吐槽、正经总结、三条标题，输出就是为了分享。</p>
+              <strong>结果可继续打磨</strong>
+              <p>不是一次性吐完就结束，还能继续改得更毒、更短或者更像传播标题。</p>
             </article>
             <article className="highlight-card">
               <span>03</span>
-              <strong>本地留痕</strong>
-              <p>最近 6 条历史留在本机，方便你反复挑最有梗的那一条。</p>
+              <strong>失败也给下一步</strong>
+              <p>认证、超时、本地接入异常都会给出更明确的补救动作，不让你自己猜。</p>
             </article>
           </div>
         </div>
@@ -322,11 +392,11 @@ function App() {
         <div className="section-head">
           <div>
             <p className="eyebrow">主工作台</p>
-            <h2>选图、分析、导出，一条链路跑完</h2>
+            <h2>导入截图、生成结果、继续打磨，整条链路都在这</h2>
           </div>
 
           <div className="head-cluster">
-            <span className="badge subtle-badge">只读监听 Codex 账号</span>
+            <span className="badge subtle-badge">默认语气：{toneOptions.find((item) => item.value === settings.defaultTone)?.label}</span>
             <span className="badge">{stageStatus}</span>
           </div>
         </div>
@@ -343,7 +413,7 @@ function App() {
             <div className="panel-topline">
               <div>
                 <p className="panel-kicker">截图舞台</p>
-                <h3>{selectedShot ? '截图已进入舞台' : '拖一张图进来'}</h3>
+                <h3>{selectedShot ? '截图已就位' : '拖一张图进来'}</h3>
               </div>
               <button className="secondary-button" onClick={handlePickScreenshot} type="button">
                 {selectedShot ? '换一张图' : '选择截图'}
@@ -359,14 +429,14 @@ function App() {
                   <span className="meta-pill subtle">当前阶段 · {stageStatus}</span>
                 </div>
                 <p className="supporting-text path-text">{selectedShot.path}</p>
-                <p className="drop-caption">也可以直接拖进另一张图，松手后会立刻替换当前截图。</p>
+                <p className="drop-caption">继续拖进另一张图会直接替换当前截图。开启自动分析后，导入就会立刻开跑。</p>
               </div>
             ) : (
               <div className="empty-spotlight">
                 <div className="empty-orb" />
                 <div className="empty-copy">
-                  <strong>拖入图片，或者点右上角按钮手动选择</strong>
-                  <p>支持 PNG、JPG、WEBP、GIF 等常见格式。整个过程只读取你主动选中的文件。</p>
+                  <strong>拖入图片，或者点击右上角按钮手动选择</strong>
+                  <p>支持 PNG、JPG、WEBP、GIF 等常见格式，Ctrl+V 也能直接把截图贴进来。</p>
                 </div>
               </div>
             )}
@@ -374,7 +444,7 @@ function App() {
             {isDragActive ? (
               <div className="drop-overlay">
                 <strong>松手即可导入截图</strong>
-                <span>文件进入舞台后，可以直接开始分析或者替换当前图片。</span>
+                <span>进入舞台后可以直接分析，也可以继续替换当前截图。</span>
               </div>
             ) : null}
           </article>
@@ -392,40 +462,40 @@ function App() {
                 <div className="status-tile">
                   <span>账号来源</span>
                   <strong>Codex 当前账号</strong>
-                  <p>由 Cockpit 只读同步。</p>
+                  <p>由 Cockpit 只读同步，不反向写回。</p>
                 </div>
                 <div className="status-tile">
                   <span>结果语言</span>
                   <strong>简体中文</strong>
-                  <p>适合直接展示和分享。</p>
+                  <p>截图内容即使是英文或日文，输出也统一转成中文。</p>
                 </div>
                 <div className="status-tile">
-                  <span>推荐标题</span>
+                  <span>当前首推标题</span>
                   <strong>{result?.titles[0] ?? '等分析后自动出现'}</strong>
-                  <p>会跟随这次截图内容刷新。</p>
+                  <p>适合直接拿去做分享文案或 README 截图标题。</p>
                 </div>
               </div>
 
               <div className="workflow-list">
-                <div className={`flow-step ${selectedShot ? 'active' : ''}`}>
+                <div className={`flow-step ${selectedShot ? 'done' : 'active'}`}>
                   <span>1</span>
                   <div>
                     <strong>准备截图</strong>
-                    <p>拖拽或手动选择都可以。</p>
+                    <p>拖图、选图、粘贴都可以。</p>
                   </div>
                 </div>
                 <div className={`flow-step ${selectedShot && !result ? 'active' : result ? 'done' : ''}`}>
                   <span>2</span>
                   <div>
-                    <strong>生成吐槽</strong>
-                    <p>根据当前语气生成整套结果。</p>
+                    <strong>生成首轮结果</strong>
+                    <p>先拿到一句吐槽、一段总结和三个分享标题。</p>
                   </div>
                 </div>
                 <div className={`flow-step ${result ? 'active' : ''}`}>
                   <span>3</span>
                   <div>
-                    <strong>导出分享</strong>
-                    <p>复制文本，或者导出分享卡图片。</p>
+                    <strong>继续打磨或导出</strong>
+                    <p>可以再改写一版，也可以直接导出分享卡。</p>
                   </div>
                 </div>
               </div>
@@ -457,16 +527,18 @@ function App() {
               <label className="field">
                 <span>OpenAI API Key</span>
                 <input
+                  aria-label="OpenAI API Key"
                   onChange={(event) => setApiKey(event.target.value)}
                   placeholder="可留空，优先走当前 Codex 本地接入"
+                  ref={apiKeyInputRef}
                   type="password"
                   value={apiKey}
                 />
-                <small>这里只影响这个应用，不会写回 Cockpit，也不会修改它原本的账号配置。</small>
+                <small>这里只影响这个应用，不会写回 Cockpit，也不会改它原来的账号配置。</small>
               </label>
 
               <div className="action-stack">
-                <button className="primary-button" disabled={isAnalyzing} onClick={handleAnalyze} type="button">
+                <button className="primary-button" disabled={isAnalyzing || Boolean(isRewriting)} onClick={() => void runAnalysis()} type="button">
                   {isAnalyzing ? '分析中...' : '开始分析'}
                 </button>
 
@@ -491,7 +563,25 @@ function App() {
                 ) : null}
               </div>
 
-              {error ? <p className="error-banner">{error}</p> : null}
+              {error ? (
+                <div className="error-panel" role="alert">
+                  <p className="error-title">{errorGuidance?.title ?? '这次没跑通'}</p>
+                  <p className="error-detail">{errorGuidance?.detail ?? error}</p>
+                  <p className="error-raw">{error}</p>
+                  <div className="error-actions">
+                    {errorGuidance?.primaryAction && errorGuidance.primaryLabel ? (
+                      <button className="secondary-button slim-button" onClick={() => handleGuidanceAction(errorGuidance.primaryAction!)} type="button">
+                        {errorGuidance.primaryLabel}
+                      </button>
+                    ) : null}
+                    {errorGuidance?.secondaryAction && errorGuidance.secondaryLabel ? (
+                      <button className="ghost-link" onClick={() => handleGuidanceAction(errorGuidance.secondaryAction!)} type="button">
+                        {errorGuidance.secondaryLabel}
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
             </article>
           </aside>
         </div>
@@ -501,7 +591,7 @@ function App() {
         <div className="section-head">
           <div>
             <p className="eyebrow">输出结果</p>
-            <h2>{result ? '这轮结果已经可以直接拿去发' : '等你开始分析后，这里会变成结果舞台'}</h2>
+            <h2>{result ? '结果已经出来了，而且还能继续改得更顺手' : '开始分析后，这里会变成你的结果舞台'}</h2>
           </div>
 
           {result ? (
@@ -513,57 +603,76 @@ function App() {
         </div>
 
         {result ? (
-          <div className="results-showcase">
-            <article className="hero-result-card">
-              <div className="result-topline">
-                <p className="panel-kicker">一句吐槽</p>
-                <button className="copy-link" onClick={() => copyText(result.roast, '一句吐槽')} type="button">
-                  复制
-                </button>
+          <>
+            <div className="rewrite-strip">
+              <span className="rewrite-label">二次改写</span>
+              <div className="rewrite-actions">
+                {rewriteActions.map((action) => (
+                  <button
+                    key={action.value}
+                    className={`secondary-button rewrite-button ${isRewriting === action.value ? 'busy' : ''}`}
+                    disabled={Boolean(isRewriting) || isAnalyzing}
+                    onClick={() => void runAnalysis(selectedShot, action.value)}
+                    type="button"
+                  >
+                    {isRewriting === action.value ? '改写中...' : action.label}
+                  </button>
+                ))}
               </div>
-              <p className="hero-result-text">{result.roast}</p>
-            </article>
-
-            <div className="result-side-stack">
-              <article className="result-card spotlight-result">
-                <div className="result-topline">
-                  <p className="panel-kicker">推荐标题</p>
-                  <button className="copy-link" onClick={() => copyText(result.titles[0] ?? '', '推荐标题')} type="button">
-                    复制
-                  </button>
-                </div>
-                <p className="spotlight-title">{result.titles[0]}</p>
-                <p className="supporting-text">适合用来做分享图、动态文案或者 README 展示标题。</p>
-              </article>
-
-              <article className="result-card">
-                <div className="result-topline">
-                  <p className="panel-kicker">正经总结</p>
-                  <button className="copy-link" onClick={() => copyText(result.summary, '正经总结')} type="button">
-                    复制
-                  </button>
-                </div>
-                <p>{result.summary}</p>
-              </article>
-
-              <article className="result-card">
-                <div className="result-topline">
-                  <p className="panel-kicker">分享标题</p>
-                  <button className="copy-link" onClick={() => copyText(result.titles.join('\n'), '分享标题')} type="button">
-                    复制
-                  </button>
-                </div>
-                <ol className="title-list">
-                  {result.titles.map((title) => (
-                    <li key={title}>{title}</li>
-                  ))}
-                </ol>
-              </article>
             </div>
-          </div>
+
+            <div className="results-showcase">
+              <article className="hero-result-card">
+                <div className="result-topline">
+                  <p className="panel-kicker">一句吐槽</p>
+                  <button className="copy-link" onClick={() => copyText(result.roast, '一句吐槽')} type="button">
+                    复制
+                  </button>
+                </div>
+                <p className="hero-result-text">{result.roast}</p>
+              </article>
+
+              <div className="result-side-stack">
+                <article className="result-card spotlight-result">
+                  <div className="result-topline">
+                    <p className="panel-kicker">首推标题</p>
+                    <button className="copy-link" onClick={() => copyText(result.titles[0] ?? '', '首推标题')} type="button">
+                      复制
+                    </button>
+                  </div>
+                  <p className="spotlight-title">{result.titles[0]}</p>
+                  <p className="supporting-text">适合做分享图标题、动态文案，或者 GitHub 首页展示图旁边那一句。</p>
+                </article>
+
+                <article className="result-card">
+                  <div className="result-topline">
+                    <p className="panel-kicker">正经总结</p>
+                    <button className="copy-link" onClick={() => copyText(result.summary, '正经总结')} type="button">
+                      复制
+                    </button>
+                  </div>
+                  <p>{result.summary}</p>
+                </article>
+
+                <article className="result-card">
+                  <div className="result-topline">
+                    <p className="panel-kicker">分享标题</p>
+                    <button className="copy-link" onClick={() => copyText(result.titles.join('\n'), '分享标题')} type="button">
+                      复制
+                    </button>
+                  </div>
+                  <ol className="title-list">
+                    {result.titles.map((title) => (
+                      <li key={title}>{title}</li>
+                    ))}
+                  </ol>
+                </article>
+              </div>
+            </div>
+          </>
         ) : (
           <div className="empty-state wide richer">
-            <p>结果区会自动排好一句吐槽、一段总结和三条标题，点一下就能复制，点一下也能导出分享卡。</p>
+            <p>这里会自动整理出一句吐槽、一段总结和三个标题。出结果后还能继续点“更毒一点”“更短一点”这种二次改写。</p>
           </div>
         )}
       </section>
@@ -572,7 +681,7 @@ function App() {
         <div className="section-head">
           <div>
             <p className="eyebrow">最近记录</p>
-            <h2>本地保留最近 6 条，用来回看最好笑的那一条</h2>
+            <h2>本地保留最近 6 条，方便你回看哪条最能打</h2>
           </div>
           <span className="badge subtle-badge">仅存本地</span>
         </div>
@@ -606,13 +715,13 @@ function App() {
           </div>
         ) : (
           <div className="empty-state wide richer">
-            <p>还没有历史记录。做完第一次分析后，这里会变成你的梗图素材库。</p>
+            <p>还没有历史记录。做完第一轮分析后，这里会变成你自己的梗图素材库。</p>
           </div>
         )}
       </section>
 
       {showOnboarding ? (
-        <div className="onboarding-overlay" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
+        <div aria-labelledby="onboarding-title" aria-modal="true" className="onboarding-overlay" role="dialog">
           <div className="onboarding-card">
             <p className="eyebrow">首次上手</p>
             <h2 id="onboarding-title">第一次打开，先看这 3 步</h2>
@@ -627,21 +736,86 @@ function App() {
               <div className="onboarding-step">
                 <span>2</span>
                 <div>
-                  <strong>选一种结果语气</strong>
-                  <p>默认是毒舌，也可以切成温柔或者打工人。</p>
+                  <strong>选一个结果语气</strong>
+                  <p>默认是毒舌，也可以切成温柔或者打工人风格。</p>
                 </div>
               </div>
               <div className="onboarding-step">
                 <span>3</span>
                 <div>
-                  <strong>分析后直接复制或导出</strong>
-                  <p>结果会给你一句吐槽、一段总结和 3 个分享标题。</p>
+                  <strong>分析后继续打磨</strong>
+                  <p>除了复制和导出，你现在还能继续把结果改得更毒、更短或者更像传播标题。</p>
                 </div>
               </div>
             </div>
             <button className="primary-button onboarding-button" onClick={dismissOnboarding} type="button">
               知道了，开始用
             </button>
+          </div>
+        </div>
+      ) : null}
+
+      {isSettingsOpen ? (
+        <div aria-labelledby="settings-title" aria-modal="true" className="onboarding-overlay" role="dialog">
+          <div className="onboarding-card settings-card">
+            <p className="eyebrow">偏好设置</p>
+            <h2 id="settings-title">把常用操作提前配好</h2>
+
+            <div className="settings-grid">
+              <div className="settings-block">
+                <strong>默认语气</strong>
+                <p>每次打开时，先落在哪个语气上。</p>
+                <div className="settings-option-grid">
+                  {toneOptions.map((option) => (
+                    <button
+                      key={option.value}
+                      className={`tone-option ${draftSettings.defaultTone === option.value ? 'active' : ''}`}
+                      onClick={() => setDraftSettings((current) => ({ ...current, defaultTone: option.value }))}
+                      type="button"
+                    >
+                      <strong>{option.label}</strong>
+                      <span>{option.description}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="settings-block">
+                <strong>导入后自动分析</strong>
+                <p>开着之后，拖图、选图或粘贴都会自动发起分析。</p>
+                <button
+                  aria-pressed={draftSettings.autoAnalyzeAfterImport}
+                  className={`toggle-card ${draftSettings.autoAnalyzeAfterImport ? 'active' : ''}`}
+                  onClick={() =>
+                    setDraftSettings((current) => ({
+                      ...current,
+                      autoAnalyzeAfterImport: !current.autoAnalyzeAfterImport,
+                    }))
+                  }
+                  type="button"
+                >
+                  <span>{draftSettings.autoAnalyzeAfterImport ? '已开启' : '已关闭'}</span>
+                  <strong>{draftSettings.autoAnalyzeAfterImport ? '导入截图就自动跑分析' : '保留手动点击开始分析'}</strong>
+                </button>
+              </div>
+
+              <div className="settings-block">
+                <strong>首次提示</strong>
+                <p>如果你想再看一次上手引导，可以在这里重放。</p>
+                <button className="secondary-button" onClick={replayOnboarding} type="button">
+                  重新查看首次引导
+                </button>
+              </div>
+            </div>
+
+            <div className="settings-actions">
+              <button className="ghost-link" onClick={() => setIsSettingsOpen(false)} type="button">
+                先不改
+              </button>
+              <button className="primary-button" onClick={saveSettings} type="button">
+                保存设置
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
@@ -658,15 +832,15 @@ function isSupportedImageFile(file: File) {
 function readDroppedImage(file: DroppedImageFile): Promise<PickedScreenshot> {
   return new Promise((resolve, reject) => {
     if (!isSupportedImageFile(file)) {
-      reject(new Error('只能拖入图片文件。'))
+      reject(new Error('这里只能拖入图片文件。'))
       return
     }
 
     const reader = new FileReader()
-    reader.onerror = () => reject(new Error('读取拖入图片失败。'))
+    reader.onerror = () => reject(new Error('读取图片失败。'))
     reader.onload = () => {
       if (typeof reader.result !== 'string') {
-        reject(new Error('读取拖入图片失败。'))
+        reject(new Error('读取图片失败。'))
         return
       }
 
@@ -704,24 +878,16 @@ function extractImageFromTransfer(transfer: DataTransfer | null) {
   return null
 }
 
-function readBooleanPreference(key: string) {
-  try {
-    return window.localStorage.getItem(key) === 'true'
-  } catch {
-    return false
-  }
-}
-
 function formatTime(value: string) {
   return new Date(value).toLocaleString('zh-CN', { hour12: false })
 }
 
 function formatAccountSyncText(account: CockpitAccountState | null) {
   if (!account?.updatedAt) {
-    return '账号变化会自动同步到这个应用，整个流程只读，不会写回 Cockpit。'
+    return '账号变化会自动同步到这个应用。整个链路只读，不会写回 Cockpit。'
   }
 
-  return `最近同步于 ${new Date(account.updatedAt).toLocaleString('zh-CN', { hour12: false })}，整个流程只读，不会写回 Cockpit。`
+  return `最近同步于 ${new Date(account.updatedAt).toLocaleString('zh-CN', { hour12: false })}，整个链路只读，不会写回 Cockpit。`
 }
 
 export default App

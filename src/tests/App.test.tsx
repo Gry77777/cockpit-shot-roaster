@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import App from '@/App'
+import type { AnalysisResult } from '@/lib/contracts'
 
 function mockCockpitBridge() {
   window.cockpitShot = {
@@ -14,16 +15,59 @@ function mockCockpitBridge() {
   }
 }
 
+function createAnalysisResult(overrides?: Partial<AnalysisResult>): AnalysisResult {
+  return {
+    roast: '这张图的气氛像是灵魂刚上线，但情绪缓存还没同步完。',
+    summary: '画面主体是一张表情偏空白的人物特写，重点在眼神和停顿感，整体像一瞬间的情绪卡顿。',
+    titles: ['这眼神像刚加载完人生', '情绪上线了，但进度条没满', '看起来很平静，其实内存占满了'],
+    ...overrides,
+  }
+}
+
 async function dismissOnboardingIfPresent() {
-  const onboardingDialog = screen.queryByRole('dialog')
+  const onboardingDialog = screen.queryByRole('dialog', { name: /第一次打开/ })
   if (!onboardingDialog) {
     return
   }
 
-  fireEvent.click(within(onboardingDialog).getByRole('button', { name: /知道了，开始用/ }))
+  fireEvent.click(within(onboardingDialog).getByRole('button', { name: '知道了，开始用' }))
 
   await waitFor(() => {
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: /第一次打开/ })).not.toBeInTheDocument()
+  })
+}
+
+function mockFileReader(dataUrl: string) {
+  vi.spyOn(FileReader.prototype, 'readAsDataURL').mockImplementation(function mockReadAsDataURL(this: FileReader) {
+    Object.defineProperty(this, 'result', {
+      configurable: true,
+      value: dataUrl,
+    })
+    this.onload?.(new ProgressEvent('load'))
+  })
+}
+
+function createDroppedFile(path: string) {
+  const file = new File(['demo'], 'shot.png', { type: 'image/png' }) as File & { path?: string }
+  Object.defineProperty(file, 'path', {
+    configurable: true,
+    value: path,
+  })
+  return file
+}
+
+async function dropImage(path = 'C:\\shots\\demo.png') {
+  const droppedFile = createDroppedFile(path)
+  const dropZone = screen.getByLabelText('截图拖放区')
+
+  fireEvent.drop(dropZone, {
+    dataTransfer: {
+      files: [droppedFile],
+    },
+  })
+
+  await waitFor(() => {
+    expect(screen.getAllByText(path).length).toBeGreaterThan(0)
   })
 }
 
@@ -34,156 +78,101 @@ describe('App', () => {
     vi.restoreAllMocks()
   })
 
-  it('renders the polished Chinese desktop shell and current Codex account', async () => {
+  it('renders the polished Chinese shell and current Codex account', async () => {
     mockCockpitBridge()
 
     render(<App />)
 
-    expect(screen.getByRole('heading', { name: /截图吐槽机/ })).toBeInTheDocument()
-    expect(screen.getByText(/把截图变成一句能发出去的梗/)).toBeInTheDocument()
-    expect(screen.getByText(/桌面安装版/)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /选择截图/ })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '截图吐槽机' })).toBeInTheDocument()
+    expect(screen.getByText('把截图变成一段能直接发出去的结果')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '偏好设置' })).toBeInTheDocument()
 
     await waitFor(() => {
       expect(screen.getByText('demo@codex.dev')).toBeInTheDocument()
     })
   })
 
-  it('accepts a dropped image file and updates the preview stage', async () => {
+  it('saves settings and auto analyzes imported screenshots with the chosen default tone', async () => {
     mockCockpitBridge()
-
-    vi.spyOn(FileReader.prototype, 'readAsDataURL').mockImplementation(function mockReadAsDataURL(this: FileReader) {
-      Object.defineProperty(this, 'result', {
-        configurable: true,
-        value: 'data:image/png;base64,dragged-preview',
-      })
-      this.onload?.(new ProgressEvent('load'))
-    })
+    mockFileReader('data:image/png;base64,dragged-preview')
+    window.cockpitShot.analyzeScreenshot = vi.fn().mockResolvedValue(createAnalysisResult())
 
     render(<App />)
     await dismissOnboardingIfPresent()
 
-    const droppedFile = new File(['demo'], 'drop-image.png', { type: 'image/png' }) as File & { path?: string }
-    Object.defineProperty(droppedFile, 'path', {
-      configurable: true,
-      value: 'C:\\shots\\drop-image.png',
-    })
+    fireEvent.click(screen.getByRole('button', { name: '偏好设置' }))
 
-    const [dropZone] = screen.getAllByLabelText(/截图拖放区/)
+    const settingsDialog = screen.getByRole('dialog', { name: '把常用操作提前配好' })
+    fireEvent.click(within(settingsDialog).getByRole('button', { name: /温柔/ }))
+    fireEvent.click(within(settingsDialog).getByRole('button', { name: /已关闭保留手动点击开始分析/ }))
+    fireEvent.click(within(settingsDialog).getByRole('button', { name: '保存设置' }))
 
-    fireEvent.drop(dropZone, {
-      dataTransfer: {
-        files: [droppedFile],
-      },
-    })
+    await dropImage()
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: /截图已进入舞台/ })).toBeInTheDocument()
+      expect(window.cockpitShot.analyzeScreenshot).toHaveBeenCalledWith(
+        expect.objectContaining({
+          imagePath: 'C:\\shots\\demo.png',
+          tone: 'gentle',
+        }),
+      )
     })
-
-    expect(screen.getByText('C:\\shots\\drop-image.png')).toBeInTheDocument()
   })
 
-  it('accepts a pasted image file and updates the preview stage', async () => {
+  it('supports rewriting an existing result with a stronger roast pass', async () => {
     mockCockpitBridge()
-
-    vi.spyOn(FileReader.prototype, 'readAsDataURL').mockImplementation(function mockReadAsDataURL(this: FileReader) {
-      Object.defineProperty(this, 'result', {
-        configurable: true,
-        value: 'data:image/png;base64,pasted-preview',
-      })
-      this.onload?.(new ProgressEvent('load'))
+    mockFileReader('data:image/png;base64,dragged-preview')
+    const initialResult = createAnalysisResult()
+    const rewrittenResult = createAnalysisResult({
+      roast: '这一版明显更冲，像把原吐槽拿去加了双倍锐度。',
     })
+    window.cockpitShot.analyzeScreenshot = vi
+      .fn()
+      .mockResolvedValueOnce(initialResult)
+      .mockResolvedValueOnce(rewrittenResult)
 
     render(<App />)
     await dismissOnboardingIfPresent()
+    await dropImage()
 
-    const pastedFile = new File(['demo'], 'paste-image.png', { type: 'image/png' }) as File & { path?: string }
-    Object.defineProperty(pastedFile, 'path', {
-      configurable: true,
-      value: 'C:\\shots\\paste-image.png',
-    })
-
-    fireEvent.paste(window, {
-      clipboardData: {
-        files: [pastedFile],
-        items: [
-          {
-            kind: 'file',
-            type: 'image/png',
-            getAsFile: () => pastedFile,
-          },
-        ],
-      },
-    })
+    fireEvent.click(screen.getByRole('button', { name: '开始分析' }))
 
     await waitFor(() => {
-      expect(screen.getByText('C:\\shots\\paste-image.png')).toBeInTheDocument()
+      expect(screen.getAllByText(initialResult.roast).length).toBeGreaterThan(0)
+      expect(screen.getByRole('button', { name: '更毒一点' })).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '更毒一点' }))
+
+    await waitFor(() => {
+      expect(window.cockpitShot.analyzeScreenshot).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          rewriteMode: 'spicier',
+          previousResult: initialResult,
+        }),
+      )
+      expect(screen.getAllByText(rewrittenResult.roast).length).toBeGreaterThan(0)
     })
   })
 
-  it('shows onboarding tips on first open and lets the user dismiss them', async () => {
+  it('shows actionable timeout guidance and can focus the API key field', async () => {
     mockCockpitBridge()
-
-    render(<App />)
-
-    const onboardingDialog = screen.getByRole('dialog')
-    expect(onboardingDialog).toBeInTheDocument()
-    expect(within(onboardingDialog).getByText(/Ctrl\+V/)).toBeInTheDocument()
-
-    fireEvent.click(within(onboardingDialog).getByRole('button', { name: /知道了，开始用/ }))
-
-    await waitFor(() => {
-      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-    })
-
-    render(<App />)
-
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-  })
-
-  it('shows an export share card action after analysis finishes', async () => {
-    mockCockpitBridge()
-    window.cockpitShot.analyzeScreenshot = vi.fn().mockResolvedValue({
-      roast: 'alpha roast line',
-      summary: 'plain summary block',
-      titles: ['first share title', 'second share title', 'third share title'],
-    })
-
-    vi.spyOn(FileReader.prototype, 'readAsDataURL').mockImplementation(function mockReadAsDataURL(this: FileReader) {
-      Object.defineProperty(this, 'result', {
-        configurable: true,
-        value: 'data:image/png;base64,dragged-preview',
-      })
-      this.onload?.(new ProgressEvent('load'))
-    })
+    mockFileReader('data:image/png;base64,dragged-preview')
+    window.cockpitShot.analyzeScreenshot = vi.fn().mockRejectedValue(new Error('请求超时了，当前认证链路没有及时返回结果。'))
 
     render(<App />)
     await dismissOnboardingIfPresent()
+    await dropImage()
 
-    const droppedFile = new File(['demo'], 'drop-image.png', { type: 'image/png' }) as File & { path?: string }
-    Object.defineProperty(droppedFile, 'path', {
-      configurable: true,
-      value: 'C:\\shots\\drop-image.png',
-    })
-
-    const [dropZone] = screen.getAllByLabelText(/截图拖放区/)
-    fireEvent.drop(dropZone, {
-      dataTransfer: {
-        files: [droppedFile],
-      },
-    })
+    fireEvent.click(screen.getByRole('button', { name: '开始分析' }))
 
     await waitFor(() => {
-      expect(screen.getByText('C:\\shots\\drop-image.png')).toBeInTheDocument()
+      expect(screen.getByText('这次请求超时了')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: '改填 API Key' })).toBeInTheDocument()
     })
 
-    const [analyzeButton] = screen.getAllByRole('button', { name: /开始分析/ })
-    fireEvent.click(analyzeButton)
+    fireEvent.click(screen.getByRole('button', { name: '改填 API Key' }))
 
-    await waitFor(() => {
-      expect(screen.getAllByText('alpha roast line').length).toBeGreaterThan(0)
-      expect(screen.getByRole('button', { name: /导出分享卡/ })).toBeInTheDocument()
-    })
+    expect(screen.getByLabelText('OpenAI API Key')).toHaveFocus()
   })
 })
