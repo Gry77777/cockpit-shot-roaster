@@ -1,0 +1,49 @@
+<svg width="1280" height="720" viewBox="0 0 1280 720" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="80" y1="40" x2="1160" y2="680" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#11151D"/>
+      <stop offset="0.55" stop-color="#0B0E13"/>
+      <stop offset="1" stop-color="#161018"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="169" y1="559" x2="1082" y2="206" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F6A562"/>
+      <stop offset="1" stop-color="#7ED6FF"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="859" y1="166" x2="1163" y2="590" gradientUnits="userSpaceOnUse">
+      <stop stop-color="rgba(255,255,255,0.08)"/>
+      <stop offset="1" stop-color="rgba(255,255,255,0.03)"/>
+    </linearGradient>
+    <filter id="blur" x="-40" y="-40" width="1360" height="800" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="40"/>
+    </filter>
+  </defs>
+
+  <rect width="1280" height="720" rx="32" fill="url(#bg)"/>
+  <circle cx="186" cy="112" r="124" fill="#F6A562" fill-opacity="0.18" filter="url(#blur)"/>
+  <circle cx="1104" cy="598" r="140" fill="#7ED6FF" fill-opacity="0.14" filter="url(#blur)"/>
+  <rect x="36" y="36" width="1208" height="648" rx="28" stroke="white" stroke-opacity="0.08"/>
+
+  <rect x="90" y="110" width="516" height="470" rx="28" fill="#0F1319" stroke="white" stroke-opacity="0.08"/>
+  <rect x="126" y="152" width="444" height="300" rx="22" fill="#1A2029"/>
+  <rect x="156" y="184" width="384" height="236" rx="18" fill="url(#accent)" fill-opacity="0.16"/>
+  <rect x="184" y="478" width="98" height="34" rx="17" fill="#F6A562" fill-opacity="0.16"/>
+  <rect x="298" y="478" width="190" height="34" rx="17" fill="white" fill-opacity="0.06"/>
+  <rect x="184" y="528" width="354" height="14" rx="7" fill="white" fill-opacity="0.12"/>
+  <rect x="184" y="554" width="268" height="14" rx="7" fill="white" fill-opacity="0.08"/>
+
+  <path d="M664 170C664 154.536 676.536 142 692 142H1160C1175.46 142 1188 154.536 1188 170V548C1188 563.464 1175.46 576 1160 576H692C676.536 576 664 563.464 664 548V170Z" fill="url(#panel)" stroke="white" stroke-opacity="0.08"/>
+
+  <text x="726" y="214" fill="#F6A562" font-family="'Segoe UI', 'Microsoft YaHei UI', sans-serif" font-size="18" letter-spacing="5">DESKTOP AI PRODUCT</text>
+  <text x="726" y="298" fill="#F7F4EC" font-family="'Segoe UI', 'Microsoft YaHei UI', sans-serif" font-size="68" font-weight="800">截图吐槽机</text>
+  <text x="726" y="354" fill="#D7D1C6" font-family="'Segoe UI', 'Microsoft YaHei UI', sans-serif" font-size="26">把截图变成一句能发出去的梗</text>
+  <text x="726" y="418" fill="#F7F4EC" font-family="'Segoe UI', 'Microsoft YaHei UI', sans-serif" font-size="24" font-weight="700">为什么它很能打</text>
+
+  <rect x="726" y="444" width="198" height="52" rx="18" fill="#F6A562" fill-opacity="0.14"/>
+  <text x="756" y="477" fill="#FFE0BC" font-family="'Segoe UI', 'Microsoft YaHei UI', sans-serif" font-size="20">只读联动 Codex</text>
+
+  <rect x="944" y="444" width="198" height="52" rx="18" fill="#7ED6FF" fill-opacity="0.12"/>
+  <text x="976" y="477" fill="#CFEFFF" font-family="'Segoe UI', 'Microsoft YaHei UI', sans-serif" font-size="20">桌面安装版</text>
+
+  <rect x="726" y="512" width="416" height="52" rx="18" fill="white" fill-opacity="0.05"/>
+  <text x="756" y="545" fill="#F7F4EC" font-family="'Segoe UI', 'Microsoft YaHei UI', sans-serif" font-size="20">截图输入 → 中文吐槽 → 分享卡导出</text>
+</svg>
