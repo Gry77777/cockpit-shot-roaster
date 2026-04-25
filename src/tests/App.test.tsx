@@ -18,6 +18,10 @@ function mockCockpitBridge() {
     }),
     pickScreenshot: vi.fn().mockResolvedValue(null),
     importClipboardImage: vi.fn().mockResolvedValue(null),
+    applyDesktopPreferences: vi.fn().mockResolvedValue({
+      enableGlobalClipboardShortcut: true,
+      enableTrayIcon: true,
+    }),
     analyzeScreenshot: vi.fn(),
     saveShareCard: vi.fn(),
     onCurrentAccountChange: vi.fn(() => () => {}),
@@ -135,8 +139,8 @@ describe('App', () => {
     })
   })
 
-  it('saves settings and auto analyzes imported screenshots with the chosen default tone', async () => {
-    mockCockpitBridge()
+  it('saves settings, syncs desktop preferences, and auto analyzes imported screenshots with the chosen default tone', async () => {
+    const { bridge } = mockCockpitBridge()
     mockFileReader('data:image/png;base64,dragged-preview')
     window.cockpitShot.analyzeScreenshot = vi.fn().mockResolvedValue(createAnalysisResult())
 
@@ -148,6 +152,7 @@ describe('App', () => {
     const settingsDialog = screen.getByRole('dialog', { name: '把常用操作提前配好' })
     fireEvent.click(within(settingsDialog).getByRole('button', { name: /温柔/ }))
     fireEvent.click(within(settingsDialog).getByRole('button', { name: /已关闭保留手动点击开始分析/ }))
+    fireEvent.click(within(settingsDialog).getByRole('button', { name: /已开启全局快捷键 Ctrl \+ Shift \+ V 可用/ }))
     fireEvent.click(within(settingsDialog).getByRole('button', { name: '保存设置' }))
 
     await dropImage()
@@ -159,6 +164,10 @@ describe('App', () => {
           tone: 'gentle',
         }),
       )
+      expect(bridge.applyDesktopPreferences).toHaveBeenLastCalledWith({
+        enableGlobalClipboardShortcut: false,
+        enableTrayIcon: true,
+      })
     })
   })
 

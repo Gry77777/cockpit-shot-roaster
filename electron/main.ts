@@ -13,6 +13,16 @@ const APP_NAME = '截图吐槽机'
 let mainWindow: BrowserWindow | null = null
 let appTray: Tray | null = null
 
+interface DesktopPreferences {
+  enableGlobalClipboardShortcut: boolean
+  enableTrayIcon: boolean
+}
+
+let desktopPreferences: DesktopPreferences = {
+  enableGlobalClipboardShortcut: true,
+  enableTrayIcon: true,
+}
+
 const hasSingleInstanceLock = app.requestSingleInstanceLock()
 
 if (!hasSingleInstanceLock) {
@@ -79,6 +89,19 @@ function createMainWindow() {
 if (hasSingleInstanceLock) {
   app.whenReady().then(() => {
   ipcMain.handle('cockpit:get-current-account', async () => readCurrentAccountFile())
+  ipcMain.handle('desktop:apply-preferences', async (_event, payload: Partial<DesktopPreferences>) => {
+    desktopPreferences = {
+      enableGlobalClipboardShortcut:
+        typeof payload.enableGlobalClipboardShortcut === 'boolean'
+          ? payload.enableGlobalClipboardShortcut
+          : desktopPreferences.enableGlobalClipboardShortcut,
+      enableTrayIcon:
+        typeof payload.enableTrayIcon === 'boolean' ? payload.enableTrayIcon : desktopPreferences.enableTrayIcon,
+    }
+
+    syncDesktopIntegrations()
+    return desktopPreferences
+  })
 
   ipcMain.handle('dialog:pick-screenshot', async () => {
     const result = await dialog.showOpenDialog({
@@ -137,11 +160,7 @@ if (hasSingleInstanceLock) {
   })
 
   createMainWindow()
-  createTray()
-
-  globalShortcut.register(CLIPBOARD_IMPORT_SHORTCUT, () => {
-    void importClipboardImageIntoWindow()
-  })
+  syncDesktopIntegrations()
 
   const stopWatchingAccount = watchCurrentAccountFile((value: Awaited<ReturnType<typeof readCurrentAccountFile>>) => {
     for (const window of BrowserWindow.getAllWindows()) {
@@ -260,6 +279,43 @@ function createTray() {
   })
 
   return appTray
+}
+
+function destroyTray() {
+  if (!appTray) {
+    return
+  }
+
+  appTray.destroy()
+  appTray = null
+}
+
+function syncDesktopIntegrations() {
+  syncGlobalShortcutRegistration()
+  syncTrayIcon()
+}
+
+function syncGlobalShortcutRegistration() {
+  if (desktopPreferences.enableGlobalClipboardShortcut) {
+    if (!globalShortcut.isRegistered(CLIPBOARD_IMPORT_SHORTCUT)) {
+      globalShortcut.register(CLIPBOARD_IMPORT_SHORTCUT, () => {
+        void importClipboardImageIntoWindow()
+      })
+    }
+
+    return
+  }
+
+  globalShortcut.unregister(CLIPBOARD_IMPORT_SHORTCUT)
+}
+
+function syncTrayIcon() {
+  if (desktopPreferences.enableTrayIcon) {
+    createTray()
+    return
+  }
+
+  destroyTray()
 }
 
 function revealWindow(window: BrowserWindow) {

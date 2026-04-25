@@ -1,10 +1,13 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { AnalysisRequest, AnalysisResult, CockpitAccountState, PickedScreenshot } from '@/lib/contracts'
+import type { AppSettings } from '@/lib/appSettings'
 
 contextBridge.exposeInMainWorld('cockpitShot', {
   getCurrentAccount: (): Promise<CockpitAccountState | null> => ipcRenderer.invoke('cockpit:get-current-account'),
   pickScreenshot: (): Promise<PickedScreenshot | null> => ipcRenderer.invoke('dialog:pick-screenshot'),
   importClipboardImage: (): Promise<PickedScreenshot | null> => ipcRenderer.invoke('clipboard:import-image'),
+  applyDesktopPreferences: (payload: Pick<AppSettings, 'enableGlobalClipboardShortcut' | 'enableTrayIcon'>) =>
+    ipcRenderer.invoke('desktop:apply-preferences', payload),
   saveShareCard: (dataUrl: string, defaultFileName?: string): Promise<string | null> =>
     ipcRenderer.invoke('dialog:save-share-card', { dataUrl, defaultFileName }),
   analyzeScreenshot: (payload: AnalysisRequest): Promise<AnalysisResult> =>

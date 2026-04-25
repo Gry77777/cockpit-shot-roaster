@@ -6,11 +6,15 @@ export const ONBOARDING_DISMISSED_KEY = 'cockpit-shot-roaster-onboarding-dismiss
 export interface AppSettings {
   defaultTone: RoastTone
   autoAnalyzeAfterImport: boolean
+  enableGlobalClipboardShortcut: boolean
+  enableTrayIcon: boolean
 }
 
 export const defaultAppSettings: AppSettings = {
   defaultTone: 'roast',
   autoAnalyzeAfterImport: false,
+  enableGlobalClipboardShortcut: true,
+  enableTrayIcon: true,
 }
 
 export function loadAppSettings(): AppSettings {
@@ -28,6 +32,12 @@ export function loadAppSettings(): AppSettings {
         typeof parsed.autoAnalyzeAfterImport === 'boolean'
           ? parsed.autoAnalyzeAfterImport
           : defaultAppSettings.autoAnalyzeAfterImport,
+      enableGlobalClipboardShortcut:
+        typeof parsed.enableGlobalClipboardShortcut === 'boolean'
+          ? parsed.enableGlobalClipboardShortcut
+          : defaultAppSettings.enableGlobalClipboardShortcut,
+      enableTrayIcon:
+        typeof parsed.enableTrayIcon === 'boolean' ? parsed.enableTrayIcon : defaultAppSettings.enableTrayIcon,
     }
   } catch {
     return defaultAppSettings

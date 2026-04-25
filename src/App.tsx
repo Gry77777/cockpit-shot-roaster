@@ -111,6 +111,15 @@ function App() {
   }, [settings])
 
   useEffect(() => {
+    void window.cockpitShot
+      .applyDesktopPreferences({
+        enableGlobalClipboardShortcut: settings.enableGlobalClipboardShortcut,
+        enableTrayIcon: settings.enableTrayIcon,
+      })
+      .catch(() => undefined)
+  }, [settings.enableGlobalClipboardShortcut, settings.enableTrayIcon])
+
+  useEffect(() => {
     if (!toast) {
       return
     }
@@ -834,6 +843,46 @@ function App() {
                   <span>{draftSettings.autoAnalyzeAfterImport ? '已开启' : '已关闭'}</span>
                   <strong>{draftSettings.autoAnalyzeAfterImport ? '导入截图就自动跑分析' : '保留手动点击开始分析'}</strong>
                 </button>
+              </div>
+
+              <div className="settings-block">
+                <strong>桌面行为</strong>
+                <p>把全局快捷键和系统托盘做成可控开关，按你自己的使用习惯来。</p>
+                <div className="settings-option-grid">
+                  <button
+                    aria-pressed={draftSettings.enableGlobalClipboardShortcut}
+                    className={`toggle-card ${draftSettings.enableGlobalClipboardShortcut ? 'active' : ''}`}
+                    onClick={() =>
+                      setDraftSettings((current) => ({
+                        ...current,
+                        enableGlobalClipboardShortcut: !current.enableGlobalClipboardShortcut,
+                      }))
+                    }
+                    type="button"
+                  >
+                    <span>{draftSettings.enableGlobalClipboardShortcut ? '已开启' : '已关闭'}</span>
+                    <strong>
+                      {draftSettings.enableGlobalClipboardShortcut
+                        ? `全局快捷键 ${globalClipboardShortcutLabel} 可用`
+                        : '关闭全局剪贴板导入快捷键'}
+                    </strong>
+                  </button>
+
+                  <button
+                    aria-pressed={draftSettings.enableTrayIcon}
+                    className={`toggle-card ${draftSettings.enableTrayIcon ? 'active' : ''}`}
+                    onClick={() =>
+                      setDraftSettings((current) => ({
+                        ...current,
+                        enableTrayIcon: !current.enableTrayIcon,
+                      }))
+                    }
+                    type="button"
+                  >
+                    <span>{draftSettings.enableTrayIcon ? '已开启' : '已关闭'}</span>
+                    <strong>{draftSettings.enableTrayIcon ? '系统托盘入口保持可用' : '关闭系统托盘入口'}</strong>
+                  </button>
+                </div>
               </div>
 
               <div className="settings-block">
