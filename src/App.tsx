@@ -1,6 +1,6 @@
 import type { DragEvent } from 'react'
 import { useEffect, useRef, useState } from 'react'
-import { loadHistory, saveHistory, type AnalysisHistoryEntry } from './features/history/historyStore'
+import { clampHistory, loadHistory, saveHistory, type AnalysisHistoryEntry } from './features/history/historyStore'
 import { renderShareCardPngDataUrl } from './features/shareCard/renderShareCard'
 import {
   dismissOnboardingPreference,
@@ -59,6 +59,7 @@ function App() {
   const [historyQuery, setHistoryQuery] = useState('')
   const [historyToneFilter, setHistoryToneFilter] = useState<'all' | RoastTone>('all')
   const [historyAccountFilter, setHistoryAccountFilter] = useState('all')
+  const [historyFavoriteOnly, setHistoryFavoriteOnly] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
@@ -77,6 +78,10 @@ function App() {
   const historyQueryNormalized = historyQuery.trim().toLowerCase()
   const historyAccountOptions = Array.from(new Set(history.map((entry) => entry.accountEmail ?? '未知账号')))
   const filteredHistory = history.filter((entry) => {
+    if (historyFavoriteOnly && !entry.isFavorite) {
+      return false
+    }
+
     if (historyToneFilter !== 'all' && entry.tone !== historyToneFilter) {
       return false
     }
@@ -96,8 +101,16 @@ function App() {
 
     return haystack.includes(historyQueryNormalized)
   })
+  const sortedHistory = [...filteredHistory].sort((left, right) => {
+    const favoriteDelta = Number(Boolean(right.isFavorite)) - Number(Boolean(left.isFavorite))
+    if (favoriteDelta !== 0) {
+      return favoriteDelta
+    }
+
+    return right.createdAt.localeCompare(left.createdAt)
+  })
   const canResetHistoryFilters =
-    historyQuery.length > 0 || historyToneFilter !== 'all' || historyAccountFilter !== 'all'
+    historyQuery.length > 0 || historyToneFilter !== 'all' || historyAccountFilter !== 'all' || historyFavoriteOnly
 
   useEffect(() => {
     let mounted = true
@@ -246,11 +259,21 @@ function App() {
     }
   }
 
-  async function runAnalysis(targetShot = selectedShot, rewriteMode?: RewriteMode) {
+  async function runAnalysis(
+    targetShot = selectedShot,
+    options?: {
+      rewriteMode?: RewriteMode
+      overrideTone?: RoastTone
+      previousResult?: AnalysisResult
+    },
+  ) {
     if (!targetShot) {
       setError('请先放一张截图进来。')
       return
     }
+
+    const nextTone = options?.overrideTone ?? tone
+    const rewriteMode = options?.rewriteMode
 
     try {
       setIsAnalyzing(!rewriteMode)
@@ -259,11 +282,11 @@ function App() {
 
       const nextResult = await window.cockpitShot.analyzeScreenshot({
         imagePath: targetShot.path,
-        tone,
+        tone: nextTone,
         activeEmail: account?.email ?? null,
         apiKey: apiKey.trim() || undefined,
         rewriteMode,
-        previousResult: rewriteMode ? result : undefined,
+        previousResult: options?.previousResult ?? (rewriteMode ? result ?? undefined : undefined),
       })
 
       const nextEntry: AnalysisHistoryEntry = {
@@ -271,14 +294,14 @@ function App() {
         createdAt: new Date().toISOString(),
         imagePath: targetShot.path,
         previewDataUrl: targetShot.previewDataUrl,
-        tone,
+        tone: nextTone,
         accountEmail: account?.email ?? null,
         result: nextResult,
       }
 
       setResult(nextResult)
       setResultVersions((current) => (rewriteMode ? [...current, nextResult] : [nextResult]))
-      setHistory((current) => [nextEntry, ...current].slice(0, 6))
+      setHistory((current) => clampHistory([nextEntry, ...current]))
       setToast(rewriteMode ? '这一版已经重写好了。' : '结果已生成，可以直接复制或导出。')
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : '截图分析失败。')
@@ -288,25 +311,40 @@ function App() {
     }
   }
 
-  async function buildShareCardPngDataUrl() {
-    if (!selectedShot || !result) {
-      throw new Error('请先生成一条结果。')
-    }
-
+  async function buildShareCardPngDataUrlFromSource(source: {
+    previewDataUrl: string
+    tone: RoastTone
+    accountEmail: string | null
+    result: AnalysisResult
+  }) {
+    const toneMeta = toneOptions.find((item) => item.value === source.tone) ?? toneOptions[0]
     const svg = buildShareCardSvg(
       {
-        previewDataUrl: selectedShot.previewDataUrl,
-        toneLabel: selectedToneMeta.label,
-        accountEmail: account?.email ?? null,
-        roast: result.roast,
-        summary: result.summary,
-        titles: result.titles,
+        previewDataUrl: source.previewDataUrl,
+        toneLabel: toneMeta.label,
+        accountEmail: source.accountEmail,
+        roast: source.result.roast,
+        summary: source.result.summary,
+        titles: source.result.titles,
       },
       shareCardTemplate,
     )
 
     const canvasSize = getShareCardCanvasSize(shareCardTemplate)
     return renderShareCardPngDataUrl(svg, canvasSize.width, canvasSize.height)
+  }
+
+  async function buildShareCardPngDataUrl() {
+    if (!selectedShot || !result) {
+      throw new Error('请先生成一条结果。')
+    }
+
+    return buildShareCardPngDataUrlFromSource({
+      previewDataUrl: selectedShot.previewDataUrl,
+      tone,
+      accountEmail: account?.email ?? null,
+      result,
+    })
   }
 
   async function handleExportShareCard() {
@@ -398,13 +436,16 @@ function App() {
     setToast(`${label}已复制`)
   }
 
+  function buildResultBundle(targetResult: AnalysisResult) {
+    return ['一句吐槽', targetResult.roast, '', '正经总结', targetResult.summary, '', '分享标题', ...targetResult.titles.map((title, index) => `${index + 1}. ${title}`)].join('\n')
+  }
+
   function copyAllResult() {
     if (!result) {
       return
     }
 
-    const bundle = [`一句吐槽`, result.roast, '', '正经总结', result.summary, '', '分享标题', ...result.titles.map((title, index) => `${index + 1}. ${title}`)].join('\n')
-    void copyText(bundle, '结果汇总')
+    void copyText(buildResultBundle(result), '结果汇总')
   }
 
   function loadHistoryEntry(entry: AnalysisHistoryEntry) {
@@ -419,10 +460,104 @@ function App() {
     setToast('已放回当前舞台。')
   }
 
+  function toggleHistoryFavorite(entryId: string) {
+    let nextFavoriteState = false
+
+    setHistory((current) =>
+      current.map((entry) => {
+        if (entry.id !== entryId) {
+          return entry
+        }
+
+        nextFavoriteState = !entry.isFavorite
+        return {
+          ...entry,
+          isFavorite: nextFavoriteState,
+        }
+      }),
+    )
+
+    setToast(nextFavoriteState ? '这条历史已加入收藏。' : '这条历史已取消收藏。')
+  }
+
+  async function rerunHistoryEntry(entry: AnalysisHistoryEntry) {
+    const nextShot = {
+      path: entry.imagePath,
+      previewDataUrl: entry.previewDataUrl,
+    }
+
+    setSelectedShot(nextShot)
+    setTone(entry.tone)
+    setResult(entry.result)
+    setResultVersions([entry.result])
+    setError(null)
+    setToast('这条历史已回到当前舞台，正在重新分析。')
+
+    await runAnalysis(nextShot, {
+      overrideTone: entry.tone,
+    })
+  }
+
+  async function exportHistoryShareCard(entry: AnalysisHistoryEntry) {
+    try {
+      setIsExporting(true)
+      setError(null)
+
+      const pngDataUrl = await buildShareCardPngDataUrlFromSource({
+        previewDataUrl: entry.previewDataUrl,
+        tone: entry.tone,
+        accountEmail: entry.accountEmail,
+        result: entry.result,
+      })
+      const savedPath = await window.cockpitShot.saveShareCard(pngDataUrl, buildShareCardFileName(shareCardTemplate))
+
+      if (savedPath) {
+        setToast(`这条历史已导出分享卡：${savedPath}`)
+      } else {
+        setToast('已取消导出。')
+      }
+    } catch (caughtError) {
+      setError(caughtError instanceof Error ? caughtError.message : '导出这条历史的分享卡失败。')
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
+  function removeHistoryEntry(entryId: string) {
+    const targetEntry = history.find((entry) => entry.id === entryId)
+    if (!targetEntry) {
+      return
+    }
+
+    const confirmed = window.confirm('确定删除这条历史吗？这不会影响你当前舞台上的结果。')
+    if (!confirmed) {
+      return
+    }
+
+    setHistory((current) => current.filter((entry) => entry.id !== entryId))
+    setToast('这条历史已删除。')
+  }
+
+  function clearVisibleHistory() {
+    if (sortedHistory.length === 0) {
+      return
+    }
+
+    const confirmed = window.confirm(`确定删除当前命中的 ${sortedHistory.length} 条历史吗？这不会影响当前舞台。`)
+    if (!confirmed) {
+      return
+    }
+
+    const targetIds = new Set(sortedHistory.map((entry) => entry.id))
+    setHistory((current) => current.filter((entry) => !targetIds.has(entry.id)))
+    setToast(`已删除当前命中的 ${sortedHistory.length} 条历史。`)
+  }
+
   function resetHistoryFilters() {
     setHistoryQuery('')
     setHistoryToneFilter('all')
     setHistoryAccountFilter('all')
+    setHistoryFavoriteOnly(false)
   }
 
   function restorePreviousVersion() {
@@ -695,7 +830,11 @@ function App() {
                     key={action.value}
                     className={`ghost-chip rewrite-button ${isRewriting === action.value ? 'busy' : ''}`}
                     disabled={Boolean(isRewriting)}
-                    onClick={() => void runAnalysis(selectedShot, action.value)}
+                    onClick={() =>
+                      void runAnalysis(selectedShot, {
+                        rewriteMode: action.value,
+                      })
+                    }
                     title={action.description}
                     type="button"
                   >
@@ -762,7 +901,7 @@ function App() {
             <p className="eyebrow">最近记录</p>
             <h2>本地保留最近 24 条，方便你按语气、账号和关键词回看素材</h2>
           </div>
-          <span className="badge subtle-badge">显示 {filteredHistory.length} / {history.length}</span>
+          <span className="badge subtle-badge">显示 {sortedHistory.length} / {history.length}</span>
         </div>
 
         {history.length > 0 ? (
@@ -804,15 +943,28 @@ function App() {
                   ))}
                 </select>
 
+                <button
+                  aria-pressed={historyFavoriteOnly}
+                  className={`ghost-chip ${historyFavoriteOnly ? 'active' : ''}`}
+                  onClick={() => setHistoryFavoriteOnly((current) => !current)}
+                  type="button"
+                >
+                  只看收藏
+                </button>
+
                 <button className="ghost-chip" disabled={!canResetHistoryFilters} onClick={resetHistoryFilters} type="button">
                   清空筛选
+                </button>
+
+                <button className="ghost-chip danger-chip" disabled={sortedHistory.length === 0} onClick={clearVisibleHistory} type="button">
+                  删除当前命中
                 </button>
               </div>
             </div>
 
-            {filteredHistory.length > 0 ? (
+            {sortedHistory.length > 0 ? (
               <div className="history-grid">
-                {filteredHistory.map((entry) => {
+                {sortedHistory.map((entry) => {
                   const toneMeta = toneOptions.find((item) => item.value === entry.tone) ?? toneOptions[0]
 
                   return (
@@ -824,14 +976,38 @@ function App() {
                             <strong>{entry.accountEmail ?? '未知账号'}</strong>
                             <span>{formatTime(entry.createdAt)}</span>
                           </div>
-                          <span className="meta-pill">{toneMeta.label}</span>
+                          <div className="history-meta-stack">
+                            <button
+                              aria-label={entry.isFavorite ? '取消收藏这条历史' : '收藏这条历史'}
+                              className={`favorite-button ${entry.isFavorite ? 'active' : ''}`}
+                              onClick={() => toggleHistoryFavorite(entry.id)}
+                              type="button"
+                            >
+                              {entry.isFavorite ? '★' : '☆'}
+                            </button>
+                            <span className="meta-pill">{toneMeta.label}</span>
+                          </div>
                         </div>
 
                         <p className="history-roast">{entry.result.roast}</p>
                         <p className="supporting-text history-path">{entry.imagePath}</p>
-                        <button className="ghost-link" onClick={() => loadHistoryEntry(entry)} type="button">
-                          放回当前舞台
-                        </button>
+                        <div className="history-actions">
+                          <button className="ghost-link" onClick={() => loadHistoryEntry(entry)} type="button">
+                            放回当前舞台
+                          </button>
+                          <button className="ghost-link" onClick={() => void rerunHistoryEntry(entry)} type="button">
+                            再跑一次
+                          </button>
+                          <button className="ghost-link" onClick={() => void copyText(buildResultBundle(entry.result), '这条历史结果')} type="button">
+                            复制结果
+                          </button>
+                          <button className="ghost-link" onClick={() => void exportHistoryShareCard(entry)} type="button">
+                            导出分享卡
+                          </button>
+                          <button className="ghost-link danger-link" onClick={() => removeHistoryEntry(entry.id)} type="button">
+                            删除
+                          </button>
+                        </div>
                       </div>
                     </article>
                   )

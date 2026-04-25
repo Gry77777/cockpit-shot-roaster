@@ -195,6 +195,190 @@ describe('App', () => {
     })
   })
 
+  it('supports starring a history entry and filtering to favorites only', async () => {
+    mockCockpitBridge()
+    window.localStorage.setItem(
+      'cockpit-shot-roaster-history',
+      JSON.stringify([
+        {
+          id: 'fav-1',
+          createdAt: '2026-04-25T10:00:00.000Z',
+          imagePath: 'C:\\shots\\fav.png',
+          previewDataUrl: 'data:image/png;base64,fav',
+          tone: 'roast',
+          accountEmail: 'fav@codex.dev',
+          result: createAnalysisResult({
+            roast: '这一条以后适合长期留着反复用。',
+          }),
+        },
+        {
+          id: 'fav-2',
+          createdAt: '2026-04-25T11:00:00.000Z',
+          imagePath: 'C:\\shots\\other.png',
+          previewDataUrl: 'data:image/png;base64,other',
+          tone: 'gentle',
+          accountEmail: 'other@codex.dev',
+          result: createAnalysisResult({
+            roast: '另一条普通历史。',
+          }),
+        },
+      ]),
+    )
+
+    render(<App />)
+    await dismissOnboardingIfPresent()
+
+    const targetCard = screen.getByText('这一条以后适合长期留着反复用。').closest('.history-card')
+    if (!targetCard) {
+      throw new Error('history card not found')
+    }
+
+    fireEvent.click(within(targetCard).getByRole('button', { name: '收藏这条历史' }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '取消收藏这条历史' })).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '只看收藏' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('这一条以后适合长期留着反复用。')).toBeInTheDocument()
+      expect(screen.queryByText('另一条普通历史。')).not.toBeInTheDocument()
+      expect(screen.getByText('显示 1 / 2')).toBeInTheDocument()
+    })
+  })
+
+  it('runs quick actions directly from a history card', async () => {
+    const { bridge } = mockCockpitBridge()
+    bridge.analyzeScreenshot.mockResolvedValue(
+      createAnalysisResult({
+        roast: '这是重新跑出来的新版本，语气更完整了。',
+      }),
+    )
+    bridge.saveShareCard.mockResolvedValue('C:\\exports\\history-wide.png')
+
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: vi.fn().mockResolvedValue(undefined),
+        write: vi.fn().mockResolvedValue(undefined),
+      },
+    })
+
+    window.localStorage.setItem(
+      'cockpit-shot-roaster-history',
+      JSON.stringify([
+        {
+          id: 'quick-1',
+          createdAt: '2026-04-25T10:00:00.000Z',
+          imagePath: 'C:\\shots\\quick.png',
+          previewDataUrl: 'data:image/png;base64,quick',
+          tone: 'roast',
+          accountEmail: 'quick@codex.dev',
+          result: createAnalysisResult({
+            roast: '这条历史适合直接拿来做快速动作测试。',
+          }),
+        },
+      ]),
+    )
+
+    render(<App />)
+    await dismissOnboardingIfPresent()
+
+    const historyCard = screen.getByText('这条历史适合直接拿来做快速动作测试。').closest('.history-card')
+    if (!historyCard) {
+      throw new Error('history card not found')
+    }
+
+    fireEvent.click(within(historyCard).getByRole('button', { name: '复制结果' }))
+
+    await waitFor(() => {
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining('一句吐槽'))
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining('这条历史适合直接拿来做快速动作测试。'))
+    })
+
+    fireEvent.click(within(historyCard).getByRole('button', { name: '再跑一次' }))
+
+    await waitFor(() => {
+      expect(bridge.analyzeScreenshot).toHaveBeenCalledWith(
+        expect.objectContaining({
+          imagePath: 'C:\\shots\\quick.png',
+          tone: 'roast',
+        }),
+      )
+    })
+
+    fireEvent.click(within(historyCard).getByRole('button', { name: '导出分享卡' }))
+
+    await waitFor(() => {
+      expect(bridge.saveShareCard).toHaveBeenCalledWith(expect.any(String), expect.stringContaining('wide'))
+    })
+  })
+
+  it('can delete a single history entry and clear the current filtered match set', async () => {
+    mockCockpitBridge()
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    window.localStorage.setItem(
+      'cockpit-shot-roaster-history',
+      JSON.stringify([
+        {
+          id: 'delete-1',
+          createdAt: '2026-04-25T10:00:00.000Z',
+          imagePath: 'C:\\shots\\delete-1.png',
+          previewDataUrl: 'data:image/png;base64,delete-1',
+          tone: 'roast',
+          accountEmail: 'delete@codex.dev',
+          result: createAnalysisResult({
+            roast: '第一条会先被单独删除。',
+          }),
+        },
+        {
+          id: 'delete-2',
+          createdAt: '2026-04-25T11:00:00.000Z',
+          imagePath: 'C:\\shots\\delete-2.png',
+          previewDataUrl: 'data:image/png;base64,delete-2',
+          tone: 'gentle',
+          accountEmail: 'delete@codex.dev',
+          result: createAnalysisResult({
+            roast: '第二条会通过筛选批量删除。',
+          }),
+        },
+      ]),
+    )
+
+    render(<App />)
+    await dismissOnboardingIfPresent()
+
+    const firstCard = screen.getByText('第一条会先被单独删除。').closest('.history-card')
+    if (!firstCard) {
+      throw new Error('first history card not found')
+    }
+
+    fireEvent.click(within(firstCard).getByRole('button', { name: '删除' }))
+
+    await waitFor(() => {
+      expect(screen.queryByText('第一条会先被单独删除。')).not.toBeInTheDocument()
+    })
+
+    fireEvent.change(screen.getByLabelText('搜索历史记录'), {
+      target: { value: '第二条' },
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('显示 1 / 1')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '删除当前命中' }))
+
+    await waitFor(() => {
+      expect(screen.queryByText('第二条会通过筛选批量删除。')).not.toBeInTheDocument()
+      expect(screen.getByText(/还没有历史记录/)).toBeInTheDocument()
+    })
+
+    expect(window.confirm).toHaveBeenCalledTimes(2)
+  })
+
   it('saves settings, syncs desktop preferences, and auto analyzes imported screenshots with the chosen default tone', async () => {
     const { bridge } = mockCockpitBridge()
     mockFileReader('data:image/png;base64,dragged-preview')
@@ -326,7 +510,12 @@ describe('App', () => {
     })
 
     fireEvent.click(screen.getByRole('button', { name: '方卡' }))
-    fireEvent.click(screen.getByRole('button', { name: '导出分享卡' }))
+    const controlCard = screen.getByRole('heading', { name: '开始吐槽' }).closest('aside')
+    if (!controlCard) {
+      throw new Error('control card not found')
+    }
+
+    fireEvent.click(within(controlCard).getByRole('button', { name: '导出分享卡' }))
 
     await waitFor(() => {
       expect(window.cockpitShot.saveShareCard).toHaveBeenCalledWith(expect.any(String), expect.stringContaining('square'))

@@ -925,6 +925,16 @@ ol {
   color: #fff0d8;
 }
 
+.ghost-chip.danger-chip {
+  border-color: rgba(255, 123, 123, 0.14);
+  color: #ffc4c4;
+}
+
+.ghost-chip.danger-chip:hover {
+  border-color: rgba(255, 123, 123, 0.28);
+  background: rgba(255, 123, 123, 0.08);
+}
+
 .rewrite-button.busy {
   border: 1px solid rgba(246, 165, 98, 0.24);
   background:
@@ -1077,6 +1087,12 @@ ol {
   gap: 12px;
 }
 
+.history-meta-stack {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .history-topline strong {
   display: block;
   font-size: 1rem;
@@ -1100,11 +1116,52 @@ ol {
   -webkit-box-orient: vertical;
 }
 
+.history-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
 .ghost-link {
   padding: 0;
   justify-self: start;
   background: transparent;
   color: #ffd2aa;
+}
+
+.danger-link {
+  color: #ffb5b5;
+}
+
+.danger-link:hover {
+  color: #ffc9c9;
+}
+
+.favorite-button {
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-soft);
+  cursor: pointer;
+  transition:
+    transform 150ms ease,
+    border-color 150ms ease,
+    background 150ms ease,
+    color 150ms ease;
+}
+
+.favorite-button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(246, 165, 98, 0.22);
+  color: #ffe1ba;
+}
+
+.favorite-button.active {
+  border-color: rgba(246, 165, 98, 0.28);
+  background: rgba(246, 165, 98, 0.12);
+  color: #ffc872;
 }
 
 .toast-banner {
