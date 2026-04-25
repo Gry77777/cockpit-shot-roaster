@@ -7,9 +7,12 @@ declare global {
     cockpitShot: {
       getCurrentAccount: () => Promise<CockpitAccountState | null>
       pickScreenshot: () => Promise<PickedScreenshot | null>
+      importClipboardImage: () => Promise<PickedScreenshot | null>
       saveShareCard: (dataUrl: string, defaultFileName?: string) => Promise<string | null>
       analyzeScreenshot: (payload: AnalysisRequest) => Promise<AnalysisResult>
       onCurrentAccountChange: (listener: (value: CockpitAccountState | null) => void) => () => void
+      onClipboardImageImported: (listener: (value: PickedScreenshot) => void) => () => void
+      onClipboardImportFailed: (listener: (message: string) => void) => () => void
     }
   }
 }

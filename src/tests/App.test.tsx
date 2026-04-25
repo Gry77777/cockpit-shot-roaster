@@ -6,17 +6,37 @@ vi.mock('@/features/shareCard/renderShareCard', () => ({
 }))
 
 import App from '@/App'
-import type { AnalysisResult } from '@/lib/contracts'
+import type { AnalysisResult, PickedScreenshot } from '@/lib/contracts'
 
 function mockCockpitBridge() {
-  window.cockpitShot = {
+  const clipboardImportedListeners: Array<(value: PickedScreenshot) => void> = []
+  const clipboardFailedListeners: Array<(message: string) => void> = []
+
+  const bridge = {
     getCurrentAccount: vi.fn().mockResolvedValue({
       email: 'demo@codex.dev',
     }),
     pickScreenshot: vi.fn().mockResolvedValue(null),
+    importClipboardImage: vi.fn().mockResolvedValue(null),
     analyzeScreenshot: vi.fn(),
     saveShareCard: vi.fn(),
     onCurrentAccountChange: vi.fn(() => () => {}),
+    onClipboardImageImported: vi.fn((listener: (value: PickedScreenshot) => void) => {
+      clipboardImportedListeners.push(listener)
+      return () => {}
+    }),
+    onClipboardImportFailed: vi.fn((listener: (message: string) => void) => {
+      clipboardFailedListeners.push(listener)
+      return () => {}
+    }),
+  }
+
+  window.cockpitShot = bridge
+
+  return {
+    bridge,
+    clipboardImportedListeners,
+    clipboardFailedListeners,
   }
 }
 
@@ -94,6 +114,24 @@ describe('App', () => {
 
     await waitFor(() => {
       expect(screen.getByText('demo@codex.dev')).toBeInTheDocument()
+    })
+  })
+
+  it('imports a clipboard screenshot through the desktop button', async () => {
+    const { bridge } = mockCockpitBridge()
+    bridge.importClipboardImage.mockResolvedValue({
+      path: 'C:\\clipboard\\shot.png',
+      previewDataUrl: 'data:image/png;base64,clipboard-preview',
+    })
+
+    render(<App />)
+    await dismissOnboardingIfPresent()
+
+    fireEvent.click(screen.getByRole('button', { name: '导入剪贴板' }))
+
+    await waitFor(() => {
+      expect(bridge.importClipboardImage).toHaveBeenCalledTimes(1)
+      expect(screen.getAllByText('C:\\clipboard\\shot.png').length).toBeGreaterThan(0)
     })
   })
 

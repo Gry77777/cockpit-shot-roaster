@@ -1,10 +1,15 @@
-import { app, BrowserWindow, dialog, ipcMain } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain } from 'electron'
 import { existsSync } from 'node:fs'
-import { readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { analyzeScreenshot } from './services/analyzerService'
 import { readCurrentAccountFile, watchCurrentAccountFile } from './services/cockpitAccountService'
 import { resolveWindowAssetPaths } from './services/windowPaths'
+
+const CLIPBOARD_IMPORT_SHORTCUT = 'CommandOrControl+Shift+V'
+const CLIPBOARD_EMPTY_MESSAGE = '剪贴板里还没有可用图片。先截一张图，再按全局快捷键。'
+
+let mainWindow: BrowserWindow | null = null
 
 function createMainWindow() {
   const appRoot = app.getAppPath()
@@ -37,8 +42,16 @@ function createMainWindow() {
     },
   })
 
+  mainWindow = window
+
   window.once('ready-to-show', () => {
     window.show()
+  })
+
+  window.on('closed', () => {
+    if (mainWindow === window) {
+      mainWindow = null
+    }
   })
 
   if (process.env.VITE_DEV_SERVER_URL) {
@@ -81,6 +94,8 @@ app.whenReady().then(() => {
 
   ipcMain.handle('analyzer:analyze-screenshot', async (_event, payload) => analyzeScreenshot(payload))
 
+  ipcMain.handle('clipboard:import-image', async () => readClipboardScreenshot())
+
   ipcMain.handle('dialog:save-share-card', async (_event, payload: { dataUrl: string; defaultFileName?: string }) => {
     const saveResult = await dialog.showSaveDialog({
       title: '导出分享卡',
@@ -109,6 +124,10 @@ app.whenReady().then(() => {
 
   createMainWindow()
 
+  globalShortcut.register(CLIPBOARD_IMPORT_SHORTCUT, () => {
+    void importClipboardImageIntoWindow()
+  })
+
   const stopWatchingAccount = watchCurrentAccountFile((value: Awaited<ReturnType<typeof readCurrentAccountFile>>) => {
     for (const window of BrowserWindow.getAllWindows()) {
       window.webContents.send('cockpit:current-account-changed', value)
@@ -123,8 +142,23 @@ app.whenReady().then(() => {
 
   app.on('before-quit', () => {
     stopWatchingAccount()
+    globalShortcut.unregisterAll()
   })
 })
+
+async function importClipboardImageIntoWindow() {
+  const window = ensureMainWindow()
+  const picked = await readClipboardScreenshot()
+
+  if (picked) {
+    revealWindow(window)
+    sendToRenderer(window, 'clipboard:image-imported', picked)
+    return
+  }
+
+  revealWindow(window)
+  sendToRenderer(window, 'clipboard:image-import-failed', CLIPBOARD_EMPTY_MESSAGE)
+}
 
 async function readImagePreview(filePath: string) {
   const buffer = await readFile(filePath)
@@ -139,6 +173,58 @@ async function readImagePreview(filePath: string) {
           : 'image/png'
 
   return `data:${mimeType};base64,${buffer.toString('base64')}`
+}
+
+async function readClipboardScreenshot() {
+  const image = clipboard.readImage()
+  if (image.isEmpty()) {
+    return null
+  }
+
+  const pngBuffer = image.toPNG()
+  const tempDir = join(app.getPath('temp'), 'cockpit-shot-roaster')
+  await mkdir(tempDir, { recursive: true })
+
+  const filePath = join(tempDir, `clipboard-${Date.now()}.png`)
+  await writeFile(filePath, pngBuffer)
+
+  return {
+    path: filePath,
+    previewDataUrl: `data:image/png;base64,${pngBuffer.toString('base64')}`,
+  }
+}
+
+function ensureMainWindow() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    return mainWindow
+  }
+
+  return createMainWindow()
+}
+
+function revealWindow(window: BrowserWindow) {
+  if (window.isMinimized()) {
+    window.restore()
+  }
+
+  if (!window.isVisible()) {
+    window.show()
+  }
+
+  window.focus()
+}
+
+function sendToRenderer(window: BrowserWindow, channel: string, payload: unknown) {
+  const deliver = () => {
+    window.webContents.send(channel, payload)
+  }
+
+  if (window.webContents.isLoading()) {
+    window.webContents.once('did-finish-load', deliver)
+    return
+  }
+
+  deliver()
 }
 
 function resolveWindowIconPath(appRoot: string) {

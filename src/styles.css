@@ -415,6 +415,13 @@ ol {
   gap: 12px;
 }
 
+.panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .panel-topline h3 {
   margin-top: 8px;
   font-size: 1.56rem;

@@ -39,6 +39,7 @@ const rewriteActions: Array<{ label: string; value: RewriteMode; description: st
 ]
 
 const supportedImagePattern = /\.(png|jpe?g|webp|gif|bmp|svg)$/i
+const globalClipboardShortcutLabel = 'Ctrl + Shift + V'
 
 type DroppedImageFile = File & { path?: string }
 
@@ -85,9 +86,19 @@ function App() {
       setToast('Codex 账号已切换，桌面应用也已经同步。')
     })
 
+    const unsubscribeClipboardImported = window.cockpitShot.onClipboardImageImported((picked) => {
+      void applyPickedShot(picked, '截图已从全局剪贴板导入。')
+    })
+
+    const unsubscribeClipboardFailed = window.cockpitShot.onClipboardImportFailed((message) => {
+      setToast(message)
+    })
+
     return () => {
       mounted = false
       unsubscribe()
+      unsubscribeClipboardImported()
+      unsubscribeClipboardFailed()
     }
   }, [])
 
@@ -183,6 +194,20 @@ function App() {
     }
 
     await applyPickedShot(picked, '截图已就位，可以直接开始分析。')
+  }
+
+  async function handleImportClipboardImage() {
+    try {
+      const picked = await window.cockpitShot.importClipboardImage()
+      if (!picked) {
+        setToast('剪贴板里还没有可用图片。先截一张图，再导入。')
+        return
+      }
+
+      await applyPickedShot(picked, '截图已从剪贴板导入。')
+    } catch (caughtError) {
+      setError(caughtError instanceof Error ? caughtError.message : '读取剪贴板图片失败。')
+    }
   }
 
   async function runAnalysis(targetShot = selectedShot, rewriteMode?: RewriteMode) {
@@ -458,7 +483,7 @@ function App() {
             <p className="eyebrow">工作区</p>
             <h2>第一版已经能跑，但这版开始更像一个真软件了</h2>
           </div>
-          <span className="badge subtle-badge">快捷键 Ctrl + Enter</span>
+          <span className="badge subtle-badge">全局导入 {globalClipboardShortcutLabel}</span>
         </div>
 
         <div className="workspace-grid">
@@ -468,9 +493,14 @@ function App() {
                 <p className="panel-kicker">截图</p>
                 <h3>{selectedShot ? '截图已选中' : '拖一张截图进来'}</h3>
               </div>
-              <button className="secondary-button" onClick={() => void handlePickScreenshot()} type="button">
-                {selectedShot ? '换一张图' : '选择截图'}
-              </button>
+              <div className="panel-actions">
+                <button className="secondary-button" onClick={() => void handleImportClipboardImage()} type="button">
+                  导入剪贴板
+                </button>
+                <button className="secondary-button" onClick={() => void handlePickScreenshot()} type="button">
+                  {selectedShot ? '换一张图' : '选择截图'}
+                </button>
+              </div>
             </div>
 
             <button
@@ -488,7 +518,7 @@ function App() {
               ) : (
                 <div className="empty-spotlight">
                   <strong>拖图、点按钮，或者直接 Ctrl + V</strong>
-                  <p>支持 PNG / JPG / WEBP / GIF / BMP / SVG。</p>
+                  <p>支持 PNG / JPG / WEBP / GIF / BMP / SVG，也支持全局快捷键 {globalClipboardShortcutLabel}。</p>
                 </div>
               )}
             </button>

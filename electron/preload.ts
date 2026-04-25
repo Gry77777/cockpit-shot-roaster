@@ -4,6 +4,7 @@ import type { AnalysisRequest, AnalysisResult, CockpitAccountState, PickedScreen
 contextBridge.exposeInMainWorld('cockpitShot', {
   getCurrentAccount: (): Promise<CockpitAccountState | null> => ipcRenderer.invoke('cockpit:get-current-account'),
   pickScreenshot: (): Promise<PickedScreenshot | null> => ipcRenderer.invoke('dialog:pick-screenshot'),
+  importClipboardImage: (): Promise<PickedScreenshot | null> => ipcRenderer.invoke('clipboard:import-image'),
   saveShareCard: (dataUrl: string, defaultFileName?: string): Promise<string | null> =>
     ipcRenderer.invoke('dialog:save-share-card', { dataUrl, defaultFileName }),
   analyzeScreenshot: (payload: AnalysisRequest): Promise<AnalysisResult> =>
@@ -14,6 +15,22 @@ contextBridge.exposeInMainWorld('cockpitShot', {
 
     return () => {
       ipcRenderer.removeListener('cockpit:current-account-changed', wrapped)
+    }
+  },
+  onClipboardImageImported: (listener: (value: PickedScreenshot) => void) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, value: PickedScreenshot) => listener(value)
+    ipcRenderer.on('clipboard:image-imported', wrapped)
+
+    return () => {
+      ipcRenderer.removeListener('clipboard:image-imported', wrapped)
+    }
+  },
+  onClipboardImportFailed: (listener: (message: string) => void) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, message: string) => listener(message)
+    ipcRenderer.on('clipboard:image-import-failed', wrapped)
+
+    return () => {
+      ipcRenderer.removeListener('clipboard:image-import-failed', wrapped)
     }
   },
 })
