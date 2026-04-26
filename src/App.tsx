@@ -59,11 +59,16 @@ function App() {
   const [historyQuery, setHistoryQuery] = useState('')
   const [historyToneFilter, setHistoryToneFilter] = useState<'all' | RoastTone>('all')
   const [historyAccountFilter, setHistoryAccountFilter] = useState('all')
+  const [historyTagFilter, setHistoryTagFilter] = useState('all')
   const [historyFavoriteOnly, setHistoryFavoriteOnly] = useState(false)
   const [historyScope, setHistoryScope] = useState<'active' | 'archived' | 'all'>('active')
+  const [historySortMode, setHistorySortMode] = useState<'favorites' | 'newest' | 'oldest' | 'updated'>('favorites')
   const [historySelectionMode, setHistorySelectionMode] = useState(false)
   const [selectedHistoryIds, setSelectedHistoryIds] = useState<string[]>([])
   const [historyDetailEntryId, setHistoryDetailEntryId] = useState<string | null>(null)
+  const [historyDetailTagDraft, setHistoryDetailTagDraft] = useState('')
+  const [historyDetailNoteDraft, setHistoryDetailNoteDraft] = useState('')
+  const [historyBatchTagDraft, setHistoryBatchTagDraft] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
@@ -81,9 +86,13 @@ function App() {
   const activeTemplateMeta = shareCardTemplateOptions.find((item) => item.value === shareCardTemplate) ?? shareCardTemplateOptions[0]
   const historyQueryNormalized = historyQuery.trim().toLowerCase()
   const historyAccountOptions = Array.from(new Set(history.map((entry) => entry.accountEmail ?? '未知账号')))
+  const historyTagOptions = Array.from(new Set(history.flatMap((entry) => entry.tags ?? []))).sort((left, right) => left.localeCompare(right, 'zh-CN'))
   const historyDetailEntry = history.find((entry) => entry.id === historyDetailEntryId) ?? null
   const activeHistoryCount = history.filter((entry) => !entry.isArchived).length
   const archivedHistoryCount = history.filter((entry) => entry.isArchived).length
+  const taggedHistoryCount = history.filter((entry) => (entry.tags?.length ?? 0) > 0).length
+  const notedHistoryCount = history.filter((entry) => Boolean(entry.note?.trim())).length
+  const favoriteHistoryCount = history.filter((entry) => entry.isFavorite).length
   const filteredHistory = history.filter((entry) => {
     if (historyScope === 'active' && entry.isArchived) {
       return false
@@ -106,32 +115,53 @@ function App() {
       return false
     }
 
+    if (historyTagFilter !== 'all' && !(entry.tags ?? []).includes(historyTagFilter)) {
+      return false
+    }
+
     if (!historyQueryNormalized) {
       return true
     }
 
-    const haystack = [accountLabel, entry.imagePath, entry.result.roast, entry.result.summary, ...entry.result.titles]
+    const haystack = [accountLabel, entry.imagePath, entry.note ?? '', ...(entry.tags ?? []), entry.result.roast, entry.result.summary, ...entry.result.titles]
       .join(' ')
       .toLowerCase()
 
     return haystack.includes(historyQueryNormalized)
   })
   const sortedHistory = [...filteredHistory].sort((left, right) => {
+    if (historySortMode === 'oldest') {
+      return left.createdAt.localeCompare(right.createdAt)
+    }
+
+    if (historySortMode === 'updated') {
+      return (right.updatedAt ?? right.createdAt).localeCompare(left.updatedAt ?? left.createdAt)
+    }
+
+    if (historySortMode === 'newest') {
+      return right.createdAt.localeCompare(left.createdAt)
+    }
+
     const favoriteDelta = Number(Boolean(right.isFavorite)) - Number(Boolean(left.isFavorite))
     if (favoriteDelta !== 0) {
       return favoriteDelta
     }
 
-    return right.createdAt.localeCompare(left.createdAt)
+    return (right.updatedAt ?? right.createdAt).localeCompare(left.updatedAt ?? left.createdAt)
   })
   const selectedHistoryCount = selectedHistoryIds.filter((id) => sortedHistory.some((entry) => entry.id === id)).length
   const everyVisibleHistorySelected = sortedHistory.length > 0 && sortedHistory.every((entry) => selectedHistoryIds.includes(entry.id))
+  const historyDetailIndex = historyDetailEntry ? sortedHistory.findIndex((entry) => entry.id === historyDetailEntry.id) : -1
+  const hasPreviousHistoryDetail = historyDetailIndex > 0
+  const hasNextHistoryDetail = historyDetailIndex >= 0 && historyDetailIndex < sortedHistory.length - 1
   const canResetHistoryFilters =
     historyQuery.length > 0 ||
     historyToneFilter !== 'all' ||
     historyAccountFilter !== 'all' ||
+    historyTagFilter !== 'all' ||
     historyFavoriteOnly ||
-    historyScope !== 'active'
+    historyScope !== 'active' ||
+    historySortMode !== 'favorites'
 
   useEffect(() => {
     let mounted = true
@@ -176,6 +206,48 @@ function App() {
       setHistoryDetailEntryId(null)
     }
   }, [history, historyDetailEntryId])
+
+  useEffect(() => {
+    setHistoryDetailTagDraft('')
+    setHistoryDetailNoteDraft(historyDetailEntry?.note ?? '')
+  }, [historyDetailEntryId, historyDetailEntry?.note])
+
+  useEffect(() => {
+    if (!historyDetailEntry) {
+      return
+    }
+
+    const handleHistoryDetailKeydown = (event: KeyboardEvent) => {
+      const target = event.target
+      if (target instanceof HTMLElement) {
+        const tagName = target.tagName.toLowerCase()
+        if (tagName === 'input' || tagName === 'textarea' || target.isContentEditable) {
+          return
+        }
+      }
+
+      if (event.key === 'Escape') {
+        closeHistoryDetail()
+        return
+      }
+
+      const currentIndex = sortedHistory.findIndex((entry) => entry.id === historyDetailEntry.id)
+      if (currentIndex === -1) {
+        return
+      }
+
+      if (event.key === 'ArrowLeft' && currentIndex > 0) {
+        setHistoryDetailEntryId(sortedHistory[currentIndex - 1]?.id ?? null)
+      }
+
+      if (event.key === 'ArrowRight' && currentIndex < sortedHistory.length - 1) {
+        setHistoryDetailEntryId(sortedHistory[currentIndex + 1]?.id ?? null)
+      }
+    }
+
+    window.addEventListener('keydown', handleHistoryDetailKeydown)
+    return () => window.removeEventListener('keydown', handleHistoryDetailKeydown)
+  }, [historyDetailEntry, sortedHistory])
 
   useEffect(() => {
     saveAppSettings(settings)
@@ -323,11 +395,14 @@ function App() {
       const nextEntry: AnalysisHistoryEntry = {
         id: `${Date.now()}`,
         createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
         imagePath: targetShot.path,
         previewDataUrl: targetShot.previewDataUrl,
         tone: nextTone,
         accountEmail: account?.email ?? null,
         result: nextResult,
+        tags: [],
+        note: '',
       }
 
       setResult(nextResult)
@@ -519,6 +594,22 @@ function App() {
     setHistoryDetailEntryId(null)
   }
 
+  function openPreviousHistoryDetail() {
+    if (!hasPreviousHistoryDetail) {
+      return
+    }
+
+    setHistoryDetailEntryId(sortedHistory[historyDetailIndex - 1]?.id ?? null)
+  }
+
+  function openNextHistoryDetail() {
+    if (!hasNextHistoryDetail) {
+      return
+    }
+
+    setHistoryDetailEntryId(sortedHistory[historyDetailIndex + 1]?.id ?? null)
+  }
+
   function toggleHistorySelection(entryId: string) {
     setSelectedHistoryIds((current) => (current.includes(entryId) ? current.filter((id) => id !== entryId) : [...current, entryId]))
   }
@@ -548,7 +639,18 @@ function App() {
 
   function updateHistoryEntries(entryIds: string[], updater: (entry: AnalysisHistoryEntry) => AnalysisHistoryEntry) {
     const targetIds = new Set(entryIds)
-    setHistory((current) => current.map((entry) => (targetIds.has(entry.id) ? updater(entry) : entry)))
+    const updatedAt = new Date().toISOString()
+
+    setHistory((current) =>
+      current.map((entry) =>
+        targetIds.has(entry.id)
+          ? {
+              ...updater(entry),
+              updatedAt,
+            }
+          : entry,
+      ),
+    )
   }
 
   function setArchivedState(entryIds: string[], nextArchived: boolean) {
@@ -571,6 +673,72 @@ function App() {
       ...entry,
       isFavorite: nextFavorite,
     }))
+  }
+
+  function normalizeHistoryTag(value: string) {
+    return value.trim().replace(/\s+/g, ' ').slice(0, 20)
+  }
+
+  function setHistoryNote(entryId: string, note: string) {
+    updateHistoryEntries([entryId], (entry) => ({
+      ...entry,
+      note: note.trim(),
+    }))
+  }
+
+  function appendTagToHistoryEntries(entryIds: string[], rawTag: string) {
+    const nextTag = normalizeHistoryTag(rawTag)
+    if (!nextTag || entryIds.length === 0) {
+      return false
+    }
+
+    updateHistoryEntries(entryIds, (entry) => ({
+      ...entry,
+      tags: Array.from(new Set([...(entry.tags ?? []), nextTag])).slice(0, 8),
+    }))
+
+    return true
+  }
+
+  function removeTagFromHistoryEntry(entryId: string, targetTag: string) {
+    updateHistoryEntries([entryId], (entry) => ({
+      ...entry,
+      tags: (entry.tags ?? []).filter((tag) => tag !== targetTag),
+    }))
+    setToast(`已移除标签：${targetTag}`)
+  }
+
+  function saveHistoryDetailNote() {
+    if (!historyDetailEntry) {
+      return
+    }
+
+    setHistoryNote(historyDetailEntry.id, historyDetailNoteDraft)
+    setToast('这条历史的备注已保存。')
+  }
+
+  function addHistoryDetailTag() {
+    if (!historyDetailEntry) {
+      return
+    }
+
+    const created = appendTagToHistoryEntries([historyDetailEntry.id], historyDetailTagDraft)
+    if (!created) {
+      return
+    }
+
+    setHistoryDetailTagDraft('')
+    setToast('这条历史已加上新标签。')
+  }
+
+  function applyBatchTag() {
+    const created = appendTagToHistoryEntries(selectedHistoryIds, historyBatchTagDraft)
+    if (!created) {
+      return
+    }
+
+    setHistoryBatchTagDraft('')
+    setToast(`已给选中的 ${selectedHistoryIds.length} 条历史加上标签。`)
   }
 
   function removeHistoryEntries(entryIds: string[]) {
@@ -697,8 +865,10 @@ function App() {
     setHistoryQuery('')
     setHistoryToneFilter('all')
     setHistoryAccountFilter('all')
+    setHistoryTagFilter('all')
     setHistoryFavoriteOnly(false)
     setHistoryScope('active')
+    setHistorySortMode('favorites')
   }
 
   function restorePreviousVersion() {
@@ -1046,6 +1216,9 @@ function App() {
             <div className="history-summary-chips">
               <span className={`summary-chip ${historyScope === 'active' ? 'active' : ''}`}>进行中 {activeHistoryCount}</span>
               <span className={`summary-chip ${historyScope === 'archived' ? 'active' : ''}`}>已归档 {archivedHistoryCount}</span>
+              <span className="summary-chip">收藏 {favoriteHistoryCount}</span>
+              <span className="summary-chip">已打标签 {taggedHistoryCount}</span>
+              <span className="summary-chip">有备注 {notedHistoryCount}</span>
             </div>
             <span className="badge subtle-badge">显示 {sortedHistory.length} / {history.length}</span>
           </div>
@@ -1116,6 +1289,30 @@ function App() {
                   ))}
                 </select>
 
+                <select
+                  aria-label="按标签筛选历史记录"
+                  onChange={(event) => setHistoryTagFilter(event.target.value)}
+                  value={historyTagFilter}
+                >
+                  <option value="all">全部标签</option>
+                  {historyTagOptions.map((tag) => (
+                    <option key={tag} value={tag}>
+                      #{tag}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  aria-label="历史记录排序方式"
+                  onChange={(event) => setHistorySortMode(event.target.value as 'favorites' | 'newest' | 'oldest' | 'updated')}
+                  value={historySortMode}
+                >
+                  <option value="favorites">收藏优先</option>
+                  <option value="updated">最近编辑</option>
+                  <option value="newest">最新优先</option>
+                  <option value="oldest">最早优先</option>
+                </select>
+
                 <button
                   aria-pressed={historyFavoriteOnly}
                   className={`ghost-chip ${historyFavoriteOnly ? 'active' : ''}`}
@@ -1149,6 +1346,19 @@ function App() {
             {historySelectionMode ? (
               <div className="history-bulk-bar">
                 <span className="history-bulk-meta">已选 {selectedHistoryCount} 条</span>
+                <div className="history-bulk-tag-row">
+                  <input
+                    aria-label="给已选历史添加标签"
+                    className="history-search compact"
+                    onChange={(event) => setHistoryBatchTagDraft(event.target.value)}
+                    placeholder="给已选历史加一个标签"
+                    type="text"
+                    value={historyBatchTagDraft}
+                  />
+                  <button className="ghost-chip" disabled={selectedHistoryCount === 0 || !historyBatchTagDraft.trim()} onClick={applyBatchTag} type="button">
+                    批量加标签
+                  </button>
+                </div>
                 <div className="history-bulk-actions">
                   <button className="ghost-chip" disabled={sortedHistory.length === 0} onClick={toggleSelectAllVisibleHistory} type="button">
                     {everyVisibleHistorySelected ? '取消全选当前结果' : '全选当前结果'}
@@ -1212,6 +1422,16 @@ function App() {
                         </div>
 
                         <p className="history-roast">{entry.result.roast}</p>
+                        {(entry.tags?.length ?? 0) > 0 ? (
+                          <div className="history-tag-row">
+                            {entry.tags?.slice(0, 3).map((tag) => (
+                              <span className="history-tag" key={tag}>
+                                #{tag}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
+                        {entry.note ? <p className="history-note-preview">{entry.note}</p> : null}
                         <p className="supporting-text history-path">{entry.imagePath}</p>
                         <div className="history-actions">
                           <button className="ghost-link" onClick={() => openHistoryDetail(entry.id)} type="button">
@@ -1262,9 +1482,17 @@ function App() {
                 <p className="eyebrow">历史详情</p>
                 <h2 id="history-detail-title">这条素材可以直接继续用，也可以马上再加工</h2>
               </div>
-              <button className="secondary-button small" onClick={closeHistoryDetail} type="button">
-                关闭
-              </button>
+              <div className="history-detail-head-actions">
+                <button className="ghost-chip" disabled={!hasPreviousHistoryDetail} onClick={openPreviousHistoryDetail} type="button">
+                  上一条
+                </button>
+                <button className="ghost-chip" disabled={!hasNextHistoryDetail} onClick={openNextHistoryDetail} type="button">
+                  下一条
+                </button>
+                <button className="secondary-button small" onClick={closeHistoryDetail} type="button">
+                  关闭
+                </button>
+              </div>
             </div>
 
             <div className="history-detail-grid">
@@ -1273,9 +1501,72 @@ function App() {
                 <div className="history-detail-meta">
                   <span className="meta-pill">{historyDetailEntry.accountEmail ?? '未知账号'}</span>
                   <span className="meta-pill">{formatTime(historyDetailEntry.createdAt)}</span>
+                  <span className="meta-pill">更新于 {formatTime(historyDetailEntry.updatedAt ?? historyDetailEntry.createdAt)}</span>
                   <span className="meta-pill">{historyDetailEntry.isArchived ? '已归档' : '进行中'}</span>
                 </div>
                 <p className="supporting-text history-detail-path">{historyDetailEntry.imagePath}</p>
+
+                <div className="history-detail-editor">
+                  <div className="history-detail-tag-editor">
+                    <div className="history-detail-tag-row">
+                      {(historyDetailEntry.tags ?? []).length > 0 ? (
+                        historyDetailEntry.tags?.map((tag) => (
+                          <button className="history-tag removable" key={tag} onClick={() => removeTagFromHistoryEntry(historyDetailEntry.id, tag)} type="button">
+                            #{tag}
+                          </button>
+                        ))
+                      ) : (
+                        <span className="supporting-text">这条历史还没有标签。</span>
+                      )}
+                    </div>
+                    <div className="history-detail-tag-input-row">
+                      <input
+                        aria-label="给这条历史添加标签"
+                        className="history-search compact"
+                        onChange={(event) => setHistoryDetailTagDraft(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault()
+                            addHistoryDetailTag()
+                          }
+                        }}
+                        placeholder="输入标签后回车或点击添加"
+                        type="text"
+                        value={historyDetailTagDraft}
+                      />
+                      <button className="ghost-chip" disabled={!historyDetailTagDraft.trim()} onClick={addHistoryDetailTag} type="button">
+                        添加标签
+                      </button>
+                    </div>
+                    <div className="history-detail-tag-row">
+                      {['适合分享', '适合复用', '情绪梗', '打工人', '封面候选'].map((tag) => (
+                        <button className="ghost-chip" key={tag} onClick={() => {
+                          setHistoryDetailTagDraft(tag)
+                          appendTagToHistoryEntries([historyDetailEntry.id], tag)
+                          setToast(`已添加标签：${tag}`)
+                        }} type="button">
+                          + {tag}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <label className="field history-note-field">
+                    <span>备注</span>
+                    <textarea
+                      aria-label="编辑这条历史的备注"
+                      className="history-note-input"
+                      onChange={(event) => setHistoryDetailNoteDraft(event.target.value)}
+                      placeholder="给这条历史记一句用途、灵感，或者你为什么想留着它。"
+                      value={historyDetailNoteDraft}
+                    />
+                  </label>
+                  <div className="history-note-actions">
+                    <button className="ghost-chip" onClick={saveHistoryDetailNote} type="button">
+                      保存备注
+                    </button>
+                  </div>
+                </div>
               </div>
 
               <div className="history-detail-content">

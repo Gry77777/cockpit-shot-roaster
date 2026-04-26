@@ -1040,6 +1040,15 @@ ol {
   gap: 10px;
 }
 
+.history-detail-head-actions,
+.history-detail-tag-row,
+.history-detail-tag-input-row,
+.history-note-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .summary-chip {
   padding: 8px 12px;
   border-radius: 999px;
@@ -1108,6 +1117,12 @@ ol {
 .history-bulk-meta {
   color: #d7eefc;
   font-weight: 700;
+}
+
+.history-bulk-tag-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
 }
 
 .history-card {
@@ -1183,6 +1198,39 @@ ol {
   font-size: 1.02rem;
   line-height: 1.62;
   color: rgba(247, 244, 236, 0.88);
+}
+
+.history-tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.history-tag {
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(142, 216, 255, 0.16);
+  background: rgba(142, 216, 255, 0.08);
+  color: #d6efff;
+  font-size: 0.82rem;
+}
+
+.history-tag.removable {
+  cursor: pointer;
+}
+
+.history-tag.removable:hover {
+  border-color: rgba(246, 165, 98, 0.24);
+  color: #ffe0ba;
+}
+
+.history-note-preview {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  color: var(--text-soft);
+  line-height: 1.55;
 }
 
 .history-path {
@@ -1309,6 +1357,20 @@ ol {
   gap: 14px;
 }
 
+.history-detail-editor {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.history-detail-tag-editor {
+  display: grid;
+  gap: 12px;
+}
+
 .history-detail-image {
   width: 100%;
   min-height: 320px;
@@ -1325,6 +1387,31 @@ ol {
 
 .history-detail-actions {
   justify-content: flex-end;
+}
+
+.history-note-field {
+  margin-top: 0;
+}
+
+.history-note-input {
+  width: 100%;
+  min-height: 110px;
+  padding: 14px 16px;
+  resize: vertical;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-main);
+}
+
+.history-note-input:focus {
+  outline: none;
+  border-color: rgba(142, 216, 255, 0.46);
+  box-shadow: 0 0 0 3px rgba(142, 216, 255, 0.12);
+}
+
+.history-search.compact {
+  min-width: 0;
 }
 
 .onboarding-overlay {
@@ -1529,6 +1616,10 @@ ol {
   .history-detail-actions {
     justify-content: flex-start;
   }
+
+  .history-bulk-tag-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 840px) {
@@ -1598,6 +1689,7 @@ ol {
   }
 
   .history-bulk-actions,
+  .history-detail-head-actions,
   .history-detail-meta,
   .history-detail-actions {
     flex-direction: column;

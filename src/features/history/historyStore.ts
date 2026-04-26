@@ -6,6 +6,7 @@ export const HISTORY_LIMIT = 24
 export interface AnalysisHistoryEntry {
   id: string
   createdAt: string
+  updatedAt?: string
   imagePath: string
   previewDataUrl: string
   tone: RoastTone
@@ -13,6 +14,8 @@ export interface AnalysisHistoryEntry {
   result: AnalysisResult
   isFavorite?: boolean
   isArchived?: boolean
+  tags?: string[]
+  note?: string
 }
 
 export function loadHistory(): AnalysisHistoryEntry[] {
@@ -40,7 +43,25 @@ export function clampHistory(entries: AnalysisHistoryEntry[]) {
 function normalizeHistoryEntry(entry: AnalysisHistoryEntry): AnalysisHistoryEntry {
   return {
     ...entry,
+    updatedAt: entry.updatedAt ?? entry.createdAt,
     isFavorite: Boolean(entry.isFavorite),
     isArchived: Boolean(entry.isArchived),
+    tags: normalizeTags(entry.tags),
+    note: entry.note?.trim() ?? '',
   }
+}
+
+function normalizeTags(tags: string[] | undefined) {
+  if (!tags) {
+    return []
+  }
+
+  return Array.from(
+    new Set(
+      tags
+        .map((tag) => tag.trim())
+        .filter(Boolean)
+        .slice(0, 8),
+    ),
+  )
 }

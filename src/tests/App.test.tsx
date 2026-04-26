@@ -522,6 +522,250 @@ describe('App', () => {
     })
   })
 
+  it('lets you add tags and notes from history detail, then filter by tag', async () => {
+    mockCockpitBridge()
+    window.localStorage.setItem(
+      'cockpit-shot-roaster-history',
+      JSON.stringify([
+        {
+          id: 'detail-1',
+          createdAt: '2026-04-25T10:00:00.000Z',
+          imagePath: 'C:\\shots\\detail-1.png',
+          previewDataUrl: 'data:image/png;base64,detail-1',
+          tone: 'roast',
+          accountEmail: 'detail@codex.dev',
+          result: createAnalysisResult({
+            roast: '这一条准备用来测试标签和备注编辑。',
+          }),
+        },
+      ]),
+    )
+
+    render(<App />)
+    await dismissOnboardingIfPresent()
+
+    const historyCard = screen.getByText('这一条准备用来测试标签和备注编辑。').closest('.history-card')
+    if (!historyCard) {
+      throw new Error('history card not found')
+    }
+
+    fireEvent.click(within(historyCard).getByRole('button', { name: '查看详情' }))
+
+    const detailDialog = screen.getByRole('dialog', { name: '这条素材可以直接继续用，也可以马上再加工' })
+    fireEvent.click(within(detailDialog).getByRole('button', { name: '+ 适合分享' }))
+    fireEvent.change(within(detailDialog).getByLabelText('编辑这条历史的备注'), {
+      target: { value: '这条可以拿来做 README 示例图。' },
+    })
+    fireEvent.click(within(detailDialog).getByRole('button', { name: '保存备注' }))
+
+    const updatedCard = document.querySelector('.history-card')
+    if (!updatedCard) {
+      throw new Error('updated history card not found')
+    }
+
+    await waitFor(() => {
+      expect(within(updatedCard).getByText('#适合分享')).toBeInTheDocument()
+      expect(within(updatedCard).getByText('这条可以拿来做 README 示例图。')).toBeInTheDocument()
+    })
+
+    fireEvent.click(within(detailDialog).getByRole('button', { name: '关闭' }))
+    fireEvent.change(screen.getByLabelText('按标签筛选历史记录'), {
+      target: { value: '适合分享' },
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('这一条准备用来测试标签和备注编辑。')).toBeInTheDocument()
+      expect(screen.getByText('显示 1 / 1')).toBeInTheDocument()
+    })
+  })
+
+  it('supports sorting history by oldest and by last updated time', async () => {
+    mockCockpitBridge()
+    window.localStorage.setItem(
+      'cockpit-shot-roaster-history',
+      JSON.stringify([
+        {
+          id: 'sort-early',
+          createdAt: '2026-04-25T08:00:00.000Z',
+          imagePath: 'C:\\shots\\sort-early.png',
+          previewDataUrl: 'data:image/png;base64,sort-early',
+          tone: 'roast',
+          accountEmail: 'sort@codex.dev',
+          result: createAnalysisResult({
+            roast: '最早生成的这条历史。',
+          }),
+        },
+        {
+          id: 'sort-late',
+          createdAt: '2026-04-25T12:00:00.000Z',
+          imagePath: 'C:\\shots\\sort-late.png',
+          previewDataUrl: 'data:image/png;base64,sort-late',
+          tone: 'gentle',
+          accountEmail: 'sort@codex.dev',
+          result: createAnalysisResult({
+            roast: '后来生成的这条历史。',
+          }),
+        },
+      ]),
+    )
+
+    const { container } = render(<App />)
+    await dismissOnboardingIfPresent()
+
+    fireEvent.change(screen.getByLabelText('历史记录排序方式'), {
+      target: { value: 'oldest' },
+    })
+
+    await waitFor(() => {
+      const roastTexts = Array.from(container.querySelectorAll('.history-card .history-roast')).map((node) => node.textContent)
+      expect(roastTexts[0]).toBe('最早生成的这条历史。')
+      expect(roastTexts[1]).toBe('后来生成的这条历史。')
+    })
+
+    const laterCard = screen.getByText('后来生成的这条历史。').closest('.history-card')
+    if (!laterCard) {
+      throw new Error('later history card not found')
+    }
+
+    fireEvent.click(within(laterCard).getByRole('button', { name: '查看详情' }))
+
+    const detailDialog = screen.getByRole('dialog', { name: '这条素材可以直接继续用，也可以马上再加工' })
+    fireEvent.change(within(detailDialog).getByLabelText('编辑这条历史的备注'), {
+      target: { value: '这一条刚刚被重新编辑过。' },
+    })
+    fireEvent.click(within(detailDialog).getByRole('button', { name: '保存备注' }))
+    fireEvent.click(within(detailDialog).getByRole('button', { name: '关闭' }))
+
+    fireEvent.change(screen.getByLabelText('历史记录排序方式'), {
+      target: { value: 'updated' },
+    })
+
+    await waitFor(() => {
+      const roastTexts = Array.from(container.querySelectorAll('.history-card .history-roast')).map((node) => node.textContent)
+      expect(roastTexts[0]).toBe('后来生成的这条历史。')
+    })
+  })
+
+  it('supports moving through history detail items with buttons and keyboard', async () => {
+    mockCockpitBridge()
+    window.localStorage.setItem(
+      'cockpit-shot-roaster-history',
+      JSON.stringify([
+        {
+          id: 'nav-1',
+          createdAt: '2026-04-25T08:00:00.000Z',
+          imagePath: 'C:\\shots\\nav-1.png',
+          previewDataUrl: 'data:image/png;base64,nav-1',
+          tone: 'roast',
+          accountEmail: 'nav@codex.dev',
+          result: createAnalysisResult({
+            roast: '第一条导航历史。',
+          }),
+        },
+        {
+          id: 'nav-2',
+          createdAt: '2026-04-25T09:00:00.000Z',
+          imagePath: 'C:\\shots\\nav-2.png',
+          previewDataUrl: 'data:image/png;base64,nav-2',
+          tone: 'work',
+          accountEmail: 'nav@codex.dev',
+          result: createAnalysisResult({
+            roast: '第二条导航历史。',
+          }),
+        },
+      ]),
+    )
+
+    render(<App />)
+    await dismissOnboardingIfPresent()
+
+    fireEvent.change(screen.getByLabelText('历史记录排序方式'), {
+      target: { value: 'oldest' },
+    })
+
+    const firstCard = screen.getByText('第一条导航历史。').closest('.history-card')
+    if (!firstCard) {
+      throw new Error('first history card not found')
+    }
+
+    fireEvent.click(within(firstCard).getByRole('button', { name: '查看详情' }))
+
+    await waitFor(() => {
+      expect(screen.getAllByText('第一条导航历史。').length).toBeGreaterThan(0)
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '下一条' }))
+
+    await waitFor(() => {
+      expect(screen.getAllByText('第二条导航历史。').length).toBeGreaterThan(0)
+    })
+
+    fireEvent.keyDown(window, { key: 'ArrowLeft' })
+
+    await waitFor(() => {
+      expect(screen.getAllByText('第一条导航历史。').length).toBeGreaterThan(0)
+    })
+
+    fireEvent.keyDown(window, { key: 'Escape' })
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: '这条素材可以直接继续用，也可以马上再加工' })).not.toBeInTheDocument()
+    })
+  })
+
+  it('applies a batch tag to selected history entries', async () => {
+    mockCockpitBridge()
+    window.localStorage.setItem(
+      'cockpit-shot-roaster-history',
+      JSON.stringify([
+        {
+          id: 'batch-tag-1',
+          createdAt: '2026-04-25T08:00:00.000Z',
+          imagePath: 'C:\\shots\\batch-tag-1.png',
+          previewDataUrl: 'data:image/png;base64,batch-tag-1',
+          tone: 'roast',
+          accountEmail: 'batch@codex.dev',
+          result: createAnalysisResult({
+            roast: '第一条批量标签历史。',
+          }),
+        },
+        {
+          id: 'batch-tag-2',
+          createdAt: '2026-04-25T09:00:00.000Z',
+          imagePath: 'C:\\shots\\batch-tag-2.png',
+          previewDataUrl: 'data:image/png;base64,batch-tag-2',
+          tone: 'gentle',
+          accountEmail: 'batch@codex.dev',
+          result: createAnalysisResult({
+            roast: '第二条批量标签历史。',
+          }),
+        },
+      ]),
+    )
+
+    const { container } = render(<App />)
+    await dismissOnboardingIfPresent()
+
+    fireEvent.click(screen.getByRole('button', { name: '批量选择' }))
+    fireEvent.click(screen.getByRole('button', { name: '全选当前结果' }))
+    fireEvent.change(screen.getByLabelText('给已选历史添加标签'), {
+      target: { value: '本周精选' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '批量加标签' }))
+
+    await waitFor(() => {
+      expect(container.querySelectorAll('.history-card .history-tag').length).toBe(2)
+    })
+
+    fireEvent.change(screen.getByLabelText('按标签筛选历史记录'), {
+      target: { value: '本周精选' },
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('显示 2 / 2')).toBeInTheDocument()
+    })
+  })
+
   it('saves settings, syncs desktop preferences, and auto analyzes imported screenshots with the chosen default tone', async () => {
     const { bridge } = mockCockpitBridge()
     mockFileReader('data:image/png;base64,dragged-preview')
