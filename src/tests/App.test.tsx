@@ -420,6 +420,166 @@ describe('App', () => {
     })
   })
 
+  it('creates a new variant directly from history detail and links it to the source entry', async () => {
+    const { bridge } = mockCockpitBridge()
+    bridge.analyzeScreenshot.mockResolvedValue(
+      createAnalysisResult({
+        roast: '这是从历史详情里直接派生出来的新变体。',
+      }),
+    )
+
+    window.localStorage.setItem(
+      'cockpit-shot-roaster-history',
+      JSON.stringify([
+        {
+          id: 'source-1',
+          createdAt: '2026-04-25T10:00:00.000Z',
+          imagePath: 'C:\\shots\\source-1.png',
+          previewDataUrl: 'data:image/png;base64,source-1',
+          tone: 'roast',
+          accountEmail: 'source@codex.dev',
+          result: createAnalysisResult({
+            roast: '这一条是原稿历史。',
+          }),
+        },
+      ]),
+    )
+
+    render(<App />)
+    await dismissOnboardingIfPresent()
+
+    fireEvent.click(screen.getByRole('button', { name: '查看详情' }))
+
+    const detailDialog = screen.getByRole('dialog', { name: '这条素材可以直接继续用，也可以马上再加工' })
+    fireEvent.change(within(detailDialog).getByLabelText('变体语气'), {
+      target: { value: 'gentle' },
+    })
+    fireEvent.change(within(detailDialog).getByLabelText('变体改写方向'), {
+      target: { value: 'headline' },
+    })
+    fireEvent.click(within(detailDialog).getByRole('button', { name: '生成新变体' }))
+
+    await waitFor(() => {
+      expect(bridge.analyzeScreenshot).toHaveBeenCalledWith(
+        expect.objectContaining({
+          imagePath: 'C:\\shots\\source-1.png',
+          tone: 'gentle',
+          rewriteMode: 'headline',
+          previousResult: expect.objectContaining({
+            roast: '这一条是原稿历史。',
+          }),
+        }),
+      )
+      expect(screen.getAllByText('这是从历史详情里直接派生出来的新变体。').length).toBeGreaterThan(0)
+      expect(screen.getAllByText('已派生 1 条').length).toBeGreaterThan(0)
+      expect(within(screen.getByRole('dialog', { name: '这条素材可以直接继续用，也可以马上再加工' })).getByText('变体')).toBeInTheDocument()
+    })
+  })
+
+  it('lets a variant detail jump back to its source entry', async () => {
+    mockCockpitBridge()
+    window.localStorage.setItem(
+      'cockpit-shot-roaster-history',
+      JSON.stringify([
+        {
+          id: 'source-nav-1',
+          createdAt: '2026-04-25T10:00:00.000Z',
+          imagePath: 'C:\\shots\\source-nav-1.png',
+          previewDataUrl: 'data:image/png;base64,source-nav-1',
+          tone: 'roast',
+          accountEmail: 'nav@codex.dev',
+          result: createAnalysisResult({
+            roast: '这是原稿导航历史。',
+          }),
+        },
+        {
+          id: 'variant-nav-1',
+          createdAt: '2026-04-25T11:00:00.000Z',
+          updatedAt: '2026-04-25T11:30:00.000Z',
+          imagePath: 'C:\\shots\\variant-nav-1.png',
+          previewDataUrl: 'data:image/png;base64,variant-nav-1',
+          tone: 'gentle',
+          accountEmail: 'nav@codex.dev',
+          sourceHistoryEntryId: 'source-nav-1',
+          sourceRootHistoryEntryId: 'source-nav-1',
+          result: createAnalysisResult({
+            roast: '这是从原稿派生出来的变体历史。',
+          }),
+        },
+      ]),
+    )
+
+    render(<App />)
+    await dismissOnboardingIfPresent()
+
+    fireEvent.click(screen.getAllByRole('button', { name: '查看详情' })[0]!)
+
+    await waitFor(() => {
+      expect(screen.getAllByText('这是从原稿派生出来的变体历史。').length).toBeGreaterThan(0)
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '查看原稿' }))
+
+    await waitFor(() => {
+      expect(screen.getAllByText('这是原稿导航历史。').length).toBeGreaterThan(0)
+    })
+  })
+
+  it('shows derived variants inside the source detail and can jump into them', async () => {
+    mockCockpitBridge()
+    window.localStorage.setItem(
+      'cockpit-shot-roaster-history',
+      JSON.stringify([
+        {
+          id: 'source-derived-1',
+          createdAt: '2026-04-25T10:00:00.000Z',
+          imagePath: 'C:\\shots\\source-derived-1.png',
+          previewDataUrl: 'data:image/png;base64,source-derived-1',
+          tone: 'roast',
+          accountEmail: 'derived@codex.dev',
+          result: createAnalysisResult({
+            roast: '这是一条带派生稿的原稿历史。',
+          }),
+        },
+        {
+          id: 'variant-derived-1',
+          createdAt: '2026-04-25T11:00:00.000Z',
+          updatedAt: '2026-04-25T11:30:00.000Z',
+          imagePath: 'C:\\shots\\variant-derived-1.png',
+          previewDataUrl: 'data:image/png;base64,variant-derived-1',
+          tone: 'work',
+          accountEmail: 'derived@codex.dev',
+          sourceHistoryEntryId: 'source-derived-1',
+          sourceRootHistoryEntryId: 'source-derived-1',
+          result: createAnalysisResult({
+            roast: '这是原稿下面的第一条派生稿。',
+          }),
+        },
+      ]),
+    )
+
+    render(<App />)
+    await dismissOnboardingIfPresent()
+
+    const sourceCard = screen.getByText('这是一条带派生稿的原稿历史。').closest('.history-card')
+    if (!sourceCard) {
+      throw new Error('source history card not found')
+    }
+
+    fireEvent.click(within(sourceCard).getByRole('button', { name: '查看详情' }))
+
+    await waitFor(() => {
+      expect(screen.getAllByText('已派生 1 条').length).toBeGreaterThan(0)
+      expect(screen.getByRole('button', { name: '查看派生稿：这是原稿下面的第一条派生稿。' })).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '查看派生稿：这是原稿下面的第一条派生稿。' }))
+
+    await waitFor(() => {
+      expect(screen.getAllByText('这是原稿下面的第一条派生稿。').length).toBeGreaterThan(0)
+    })
+  })
+
   it('supports batch archiving the visible history set', async () => {
     mockCockpitBridge()
     window.localStorage.setItem(

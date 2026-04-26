@@ -42,6 +42,7 @@ const supportedImagePattern = /\.(png|jpe?g|webp|gif|bmp|svg)$/i
 const globalClipboardShortcutLabel = 'Ctrl + Shift + V'
 
 type DroppedImageFile = File & { path?: string }
+type HistoryVariantRewriteMode = RewriteMode | 'none'
 
 function App() {
   const initialSettings = loadAppSettings()
@@ -68,6 +69,8 @@ function App() {
   const [historyDetailEntryId, setHistoryDetailEntryId] = useState<string | null>(null)
   const [historyDetailTagDraft, setHistoryDetailTagDraft] = useState('')
   const [historyDetailNoteDraft, setHistoryDetailNoteDraft] = useState('')
+  const [historyVariantToneDraft, setHistoryVariantToneDraft] = useState<RoastTone>('roast')
+  const [historyVariantRewriteMode, setHistoryVariantRewriteMode] = useState<HistoryVariantRewriteMode>('headline')
   const [historyBatchTagDraft, setHistoryBatchTagDraft] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
@@ -87,7 +90,22 @@ function App() {
   const historyQueryNormalized = historyQuery.trim().toLowerCase()
   const historyAccountOptions = Array.from(new Set(history.map((entry) => entry.accountEmail ?? '未知账号')))
   const historyTagOptions = Array.from(new Set(history.flatMap((entry) => entry.tags ?? []))).sort((left, right) => left.localeCompare(right, 'zh-CN'))
+  const derivedHistoryCountBySourceId = history.reduce<Record<string, number>>((counts, entry) => {
+    if (entry.sourceHistoryEntryId) {
+      counts[entry.sourceHistoryEntryId] = (counts[entry.sourceHistoryEntryId] ?? 0) + 1
+    }
+
+    return counts
+  }, {})
   const historyDetailEntry = history.find((entry) => entry.id === historyDetailEntryId) ?? null
+  const historyDetailSourceEntry = historyDetailEntry?.sourceHistoryEntryId
+    ? history.find((entry) => entry.id === historyDetailEntry.sourceHistoryEntryId) ?? null
+    : null
+  const historyDetailDerivedEntries = historyDetailEntry
+    ? history
+        .filter((entry) => entry.sourceHistoryEntryId === historyDetailEntry.id)
+        .sort((left, right) => (right.updatedAt ?? right.createdAt).localeCompare(left.updatedAt ?? left.createdAt))
+    : []
   const activeHistoryCount = history.filter((entry) => !entry.isArchived).length
   const archivedHistoryCount = history.filter((entry) => entry.isArchived).length
   const taggedHistoryCount = history.filter((entry) => (entry.tags?.length ?? 0) > 0).length
@@ -210,7 +228,9 @@ function App() {
   useEffect(() => {
     setHistoryDetailTagDraft('')
     setHistoryDetailNoteDraft(historyDetailEntry?.note ?? '')
-  }, [historyDetailEntryId, historyDetailEntry?.note])
+    setHistoryVariantToneDraft(historyDetailEntry?.tone ?? toneOptions[0].value)
+    setHistoryVariantRewriteMode('headline')
+  }, [historyDetailEntryId, historyDetailEntry?.note, historyDetailEntry?.tone])
 
   useEffect(() => {
     if (!historyDetailEntry) {
@@ -368,6 +388,7 @@ function App() {
       rewriteMode?: RewriteMode
       overrideTone?: RoastTone
       previousResult?: AnalysisResult
+      historySourceEntry?: AnalysisHistoryEntry
     },
   ) {
     if (!targetShot) {
@@ -377,6 +398,8 @@ function App() {
 
     const nextTone = options?.overrideTone ?? tone
     const rewriteMode = options?.rewriteMode
+    const historySourceEntry = options?.historySourceEntry
+    const nextCreatedAt = new Date().toISOString()
 
     try {
       setIsAnalyzing(!rewriteMode)
@@ -394,8 +417,8 @@ function App() {
 
       const nextEntry: AnalysisHistoryEntry = {
         id: `${Date.now()}`,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        createdAt: nextCreatedAt,
+        updatedAt: nextCreatedAt,
         imagePath: targetShot.path,
         previewDataUrl: targetShot.previewDataUrl,
         tone: nextTone,
@@ -403,12 +426,25 @@ function App() {
         result: nextResult,
         tags: [],
         note: '',
+        sourceHistoryEntryId: historySourceEntry?.id,
+        sourceRootHistoryEntryId: historySourceEntry ? historySourceEntry.sourceRootHistoryEntryId ?? historySourceEntry.id : undefined,
       }
 
+      setSelectedShot(targetShot)
+      setTone(nextTone)
       setResult(nextResult)
-      setResultVersions((current) => (rewriteMode ? [...current, nextResult] : [nextResult]))
+      setResultVersions((current) => (rewriteMode && !historySourceEntry ? [...current, nextResult] : [nextResult]))
       setHistory((current) => clampHistory([nextEntry, ...current]))
-      setToast(rewriteMode ? '这一版已经重写好了。' : '结果已生成，可以直接复制或导出。')
+      if (historySourceEntry) {
+        setHistoryDetailEntryId(nextEntry.id)
+      }
+      setToast(
+        historySourceEntry
+          ? '新变体已经生成，并接到这条历史下面了。'
+          : rewriteMode
+            ? '这一版已经重写好了。'
+            : '结果已生成，可以直接复制或导出。',
+      )
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : '截图分析失败。')
     } finally {
@@ -804,6 +840,23 @@ function App() {
 
     await runAnalysis(nextShot, {
       overrideTone: entry.tone,
+    })
+  }
+
+  async function createHistoryVariant(entry: AnalysisHistoryEntry) {
+    const nextShot = {
+      path: entry.imagePath,
+      previewDataUrl: entry.previewDataUrl,
+    }
+    const nextRewriteMode = historyVariantRewriteMode === 'none' ? undefined : historyVariantRewriteMode
+
+    setError(null)
+    setToast('正在从这条历史生成新变体。')
+    await runAnalysis(nextShot, {
+      overrideTone: historyVariantToneDraft,
+      rewriteMode: nextRewriteMode,
+      previousResult: nextRewriteMode ? entry.result : undefined,
+      historySourceEntry: entry,
     })
   }
 
@@ -1416,6 +1469,10 @@ function App() {
                             >
                               {entry.isFavorite ? '★' : '☆'}
                             </button>
+                            {entry.sourceHistoryEntryId ? <span className="meta-pill muted">变体</span> : null}
+                            {(derivedHistoryCountBySourceId[entry.id] ?? 0) > 0 ? (
+                              <span className="meta-pill muted">已派生 {derivedHistoryCountBySourceId[entry.id]} 条</span>
+                            ) : null}
                             {entry.isArchived ? <span className="meta-pill muted">已归档</span> : null}
                             <span className="meta-pill">{toneMeta.label}</span>
                           </div>
@@ -1502,9 +1559,79 @@ function App() {
                   <span className="meta-pill">{historyDetailEntry.accountEmail ?? '未知账号'}</span>
                   <span className="meta-pill">{formatTime(historyDetailEntry.createdAt)}</span>
                   <span className="meta-pill">更新于 {formatTime(historyDetailEntry.updatedAt ?? historyDetailEntry.createdAt)}</span>
+                  {historyDetailEntry.sourceHistoryEntryId ? <span className="meta-pill muted">变体</span> : null}
+                  {(derivedHistoryCountBySourceId[historyDetailEntry.id] ?? 0) > 0 ? (
+                    <span className="meta-pill muted">已派生 {derivedHistoryCountBySourceId[historyDetailEntry.id]} 条</span>
+                  ) : null}
                   <span className="meta-pill">{historyDetailEntry.isArchived ? '已归档' : '进行中'}</span>
                 </div>
                 <p className="supporting-text history-detail-path">{historyDetailEntry.imagePath}</p>
+
+                {historyDetailSourceEntry || historyDetailDerivedEntries.length > 0 ? (
+                  <div className="history-relationship-card">
+                    <p className="panel-kicker">变体关系</p>
+                    {historyDetailSourceEntry ? (
+                      <div className="history-relationship-block">
+                        <span className="supporting-text">这条历史来自上一条原稿。</span>
+                        <button className="ghost-chip" onClick={() => openHistoryDetail(historyDetailSourceEntry.id)} type="button">
+                          查看原稿
+                        </button>
+                      </div>
+                    ) : null}
+                    {historyDetailDerivedEntries.length > 0 ? (
+                      <div className="history-relationship-block">
+                        <strong>派生稿列表</strong>
+                        <span className="supporting-text">这条原稿下面现在有 {historyDetailDerivedEntries.length} 条派生稿。</span>
+                        <div className="history-derived-list">
+                          {historyDetailDerivedEntries.map((entry) => (
+                            <button className="ghost-chip" key={entry.id} onClick={() => openHistoryDetail(entry.id)} type="button">
+                              {`查看派生稿：${entry.result.roast}`}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                <div className="history-variant-card">
+                  <div className="panel-topline compact">
+                    <div>
+                      <p className="panel-kicker">变体工坊</p>
+                      <h3>直接基于这条历史再产一版</h3>
+                    </div>
+                  </div>
+                  <div className="history-variant-grid">
+                    <label className="field">
+                      <span>变体语气</span>
+                      <select aria-label="变体语气" onChange={(event) => setHistoryVariantToneDraft(event.target.value as RoastTone)} value={historyVariantToneDraft}>
+                        {toneOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="field">
+                      <span>变体改写方向</span>
+                      <select
+                        aria-label="变体改写方向"
+                        onChange={(event) => setHistoryVariantRewriteMode(event.target.value as HistoryVariantRewriteMode)}
+                        value={historyVariantRewriteMode}
+                      >
+                        <option value="none">保持原味</option>
+                        {rewriteActions.map((action) => (
+                          <option key={action.value} value={action.value}>
+                            {action.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                  <button className="ghost-chip" onClick={() => void createHistoryVariant(historyDetailEntry)} type="button">
+                    生成新变体
+                  </button>
+                </div>
 
                 <div className="history-detail-editor">
                   <div className="history-detail-tag-editor">

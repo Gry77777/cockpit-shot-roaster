@@ -16,6 +16,8 @@ export interface AnalysisHistoryEntry {
   isArchived?: boolean
   tags?: string[]
   note?: string
+  sourceHistoryEntryId?: string
+  sourceRootHistoryEntryId?: string
 }
 
 export function loadHistory(): AnalysisHistoryEntry[] {
@@ -48,6 +50,8 @@ function normalizeHistoryEntry(entry: AnalysisHistoryEntry): AnalysisHistoryEntr
     isArchived: Boolean(entry.isArchived),
     tags: normalizeTags(entry.tags),
     note: entry.note?.trim() ?? '',
+    sourceHistoryEntryId: entry.sourceHistoryEntryId?.trim() || undefined,
+    sourceRootHistoryEntryId: entry.sourceRootHistoryEntryId?.trim() || entry.sourceHistoryEntryId?.trim() || undefined,
   }
 }
 
